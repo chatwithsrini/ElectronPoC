@@ -1,0 +1,44 @@
+{
+  "name": "electron-hello-world",
+  "version": "1.0.0",
+  "description": "A simple Electron Hello World application",
+  "main": "main.js",
+  "scripts": {
+    "build:styles": "./node_modules/.bin/sass src/styles.scss styles.css --no-source-map",
+    "build": "npm run build:styles && vite build",
+    "start": "npm run build && electron .",
+    "dev": "vite",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:win:x64": "npm run build && electron-builder --win --x64",
+    "pack": "npm run build && electron-builder --dir"
+  },
+  "keywords": [
+    "electron",
+    "hello-world",
+    "react"
+  ],
+  "author": "Srinivasan Sekar",
+  "license": "MIT",
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.1.0",
+    "mssql": "^10.0.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "winreg": "^1.2.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "sass": "^1.80.0",
+    "vite": "^5.0.8",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "extends": "electron-builder.yml"
+  }
+}

@@ -1,0 +1,60 @@
+appId: com.presidio.electron-poc
+productName: Electron POC
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - main.js
+  - preload.js
+  - package.json
+  - src/utils/**/*
+  - "!node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!node_modules/**/{test,__tests__,tests,powered-test,example,examples}"
+  - "!node_modules/**/*.d.ts"
+  - "!node_modules/**/*.map"
+  - "!node_modules/**/.{bin,git,nyc_output,coverage}"
+  - "!node_modules/**/.{eslint,mocha,prettier,jest,ava,tslint,tsd,eslintcache,stylelintcache}"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico  # Optional: Add icon file if available
+  requestedExecutionLevel: requireAdministrator
+  signAndEditExecutable: false
+  verifyUpdateCodeSignature: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  # installerIcon: build/installer-icon.ico  # Optional: Add icon file if available
+  # uninstallerIcon: build/uninstaller-icon.ico  # Optional: Add icon file if available
+  # installerHeaderIcon: build/header-icon.ico  # Optional: Add icon file if available
+  include: build/installer.nsh
+  artifactName: ${productName}-${version}-Setup.${ext}
+  deleteAppDataOnUninstall: true
+  warningsAsErrors: false
+  # Custom installer settings
+  displayLanguageSelector: false
+  installerHeader: none
+  installerSidebar: none
+  uninstallerSidebar: none
+  # MUI settings for modern look
+  unicode: true
+  perMachine: true
+  runAfterFinish: true
+  menuCategory: true
+
+mac:
+  target: dmg
+  category: public.app-category.utilities
+
+linux:
+  target: AppImage
+
