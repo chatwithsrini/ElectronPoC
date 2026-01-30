@@ -32,5 +32,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Application Monitoring operations
   getAppMetrics: () => ipcRenderer.invoke('monitoring:get-metrics'),
   analyzeMetrics: (currentMetrics, previousMetrics) => ipcRenderer.invoke('monitoring:analyze', currentMetrics, previousMetrics),
+  
+  // Test Services operations
+  getTestServices: () => ipcRenderer.invoke('test-services:get-all'),
+  createTestService: (serviceName, sizeMB) => ipcRenderer.invoke('test-services:create', serviceName, sizeMB),
+  stopTestService: (serviceName) => ipcRenderer.invoke('test-services:stop', serviceName),
+  stopAllTestServices: () => ipcRenderer.invoke('test-services:stop-all'),
+  getTestServicesTotalSize: () => ipcRenderer.invoke('test-services:get-total-size'),
+  
+  // Application Control operations
+  getRunningApplications: () => ipcRenderer.invoke('apps:get-all'),
+  closeApplication: (processId) => ipcRenderer.invoke('apps:close', processId),
+  forceCloseApplication: (processId) => ipcRenderer.invoke('apps:force-close', processId),
+  focusApplication: (processId) => ipcRenderer.invoke('apps:focus', processId),
+  minimizeApplication: (processId) => ipcRenderer.invoke('apps:minimize', processId),
+  getApplicationDetails: (processId) => ipcRenderer.invoke('apps:get-details', processId),
 });
 

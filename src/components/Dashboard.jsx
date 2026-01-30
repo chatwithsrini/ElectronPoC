@@ -14,11 +14,22 @@ function Dashboard({ user, onLogout }) {
   const [servicesLoading, setServicesLoading] = useState(false);
   const [servicesError, setServicesError] = useState(null);
   const [actionLoading, setActionLoading] = useState({});
+  const [serviceFilter, setServiceFilter] = useState('all'); // 'all', 'running', 'stopped', 'paused'
+  const [testServices, setTestServices] = useState([]);
+  const [testServicesLoading, setTestServicesLoading] = useState(false);
+  const [testServicesError, setTestServicesError] = useState(null);
+  const [testServicesActionLoading, setTestServicesActionLoading] = useState({});
+  const [testServicesTotalSize, setTestServicesTotalSize] = useState(null);
+  const [applications, setApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationsError, setApplicationsError] = useState(null);
+  const [applicationActionLoading, setApplicationActionLoading] = useState({});
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'fa-house' },
     { id: 'database', label: 'Database', icon: 'fa-database' },
     { id: 'services', label: 'Services', icon: 'fa-gear' },
+    { id: 'applications', label: 'Applications', icon: 'fa-window-restore' },
     { id: 'monitoring', label: 'Monitoring', icon: 'fa-chart-line' },
     { id: 'profile', label: 'Profile', icon: 'fa-user' },
   ];
@@ -27,6 +38,8 @@ function Dashboard({ user, onLogout }) {
     loadSessionInfo();
     checkDbConnection();
     loadServices();
+    loadTestServices();
+    loadApplications();
     
     // Check connection every 30 seconds
     const interval = setInterval(() => {
@@ -36,11 +49,18 @@ function Dashboard({ user, onLogout }) {
     // Refresh services every 10 seconds
     const servicesInterval = setInterval(() => {
       loadServices();
+      loadTestServices();
     }, 10000);
+
+    // Refresh applications every 5 seconds
+    const appsInterval = setInterval(() => {
+      loadApplications();
+    }, 5000);
 
     return () => {
       clearInterval(interval);
       clearInterval(servicesInterval);
+      clearInterval(appsInterval);
     };
   }, []);
 
@@ -164,6 +184,223 @@ function Dashboard({ user, onLogout }) {
     }
   };
 
+  const loadTestServices = async () => {
+    try {
+      if (!window.electronAPI) {
+        setTestServicesError('Electron API not available. Please restart the application.');
+        return;
+      }
+
+      if (typeof window.electronAPI.getTestServices !== 'function' || 
+          typeof window.electronAPI.getTestServicesTotalSize !== 'function') {
+        setTestServicesError('Test services API not available. Please restart the Electron application.');
+        return;
+      }
+
+      setTestServicesLoading(true);
+      setTestServicesError(null);
+
+      const [servicesResult, sizeResult] = await Promise.all([
+        window.electronAPI.getTestServices(),
+        window.electronAPI.getTestServicesTotalSize(),
+      ]);
+
+      if (servicesResult.success) {
+        setTestServices(servicesResult.services || []);
+      } else {
+        setTestServicesError(servicesResult.error || 'Failed to load test services');
+      }
+
+      if (sizeResult.success) {
+        setTestServicesTotalSize(sizeResult);
+      }
+    } catch (error) {
+      console.error('Error loading test services:', error);
+      setTestServicesError(error.message || 'Failed to load test services');
+    } finally {
+      setTestServicesLoading(false);
+    }
+  };
+
+  const handleCreateTestServices = async () => {
+    if (!window.electronAPI) {
+      alert('Electron API is not available. Please restart the application.');
+      return;
+    }
+
+    if (typeof window.electronAPI.createTestService !== 'function') {
+      alert('Test services API is not available. Please restart the Electron application to load the updated preload script.');
+      return;
+    }
+
+    setTestServicesActionLoading(prev => ({ ...prev, 'create-all': true }));
+
+    try {
+      const serviceNames = ['TestService1', 'TestService2', 'TestService3', 'TestService4', 'TestService5'];
+      const sizeMB = 10; // 10MB per service
+      
+      const results = await Promise.all(
+        serviceNames.map(name => 
+          window.electronAPI.createTestService(name, sizeMB)
+        )
+      );
+
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+
+      if (successCount > 0) {
+        await loadTestServices();
+        alert(`Successfully created ${successCount} test service(s)${failCount > 0 ? `, ${failCount} failed` : ''}`);
+      } else {
+        alert(`Failed to create test services: ${results[0]?.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error creating test services:', error);
+      alert(`Failed to create test services: ${error.message || 'Unknown error'}`);
+    } finally {
+      setTestServicesActionLoading(prev => ({ ...prev, 'create-all': false }));
+    }
+  };
+
+  const handleStopTestService = async (serviceName) => {
+    if (!window.electronAPI) {
+      alert('Electron API is not available. Please restart the application.');
+      return;
+    }
+
+    if (typeof window.electronAPI.stopTestService !== 'function') {
+      alert('Test services API is not available. Please restart the Electron application.');
+      return;
+    }
+
+    setTestServicesActionLoading(prev => ({ ...prev, [serviceName]: true }));
+
+    try {
+      const result = await window.electronAPI.stopTestService(serviceName);
+
+      if (result.success) {
+        await loadTestServices();
+      } else {
+        alert(`Failed to stop test service: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error stopping test service:', error);
+      alert(`Failed to stop test service: ${error.message || 'Unknown error'}`);
+    } finally {
+      setTestServicesActionLoading(prev => ({ ...prev, [serviceName]: false }));
+    }
+  };
+
+  const handleStopAllTestServices = async () => {
+    if (!window.electronAPI) {
+      alert('Electron API is not available. Please restart the application.');
+      return;
+    }
+
+    if (typeof window.electronAPI.stopAllTestServices !== 'function') {
+      alert('Test services API is not available. Please restart the Electron application.');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to stop all test services? This will remove all test service files.')) {
+      return;
+    }
+
+    setTestServicesActionLoading(prev => ({ ...prev, 'stop-all': true }));
+
+    try {
+      const result = await window.electronAPI.stopAllTestServices();
+
+      if (result.success) {
+        await loadTestServices();
+        alert(result.message || 'All test services stopped successfully');
+      } else {
+        alert(`Failed to stop all test services: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error stopping all test services:', error);
+      alert(`Failed to stop all test services: ${error.message || 'Unknown error'}`);
+    } finally {
+      setTestServicesActionLoading(prev => ({ ...prev, 'stop-all': false }));
+    }
+  };
+
+  const loadApplications = async () => {
+    try {
+      if (!window.electronAPI) {
+        setApplicationsError('Electron API not available. Please restart the Electron application.');
+        return;
+      }
+
+      if (!window.electronAPI.getRunningApplications) {
+        setApplicationsError('Application control API not available. Please restart the Electron application to load the updated code.');
+        return;
+      }
+
+      setApplicationsLoading(true);
+      setApplicationsError(null);
+
+      const result = await window.electronAPI.getRunningApplications();
+
+      if (result.success) {
+        const apps = result.applications || [];
+        setApplications(apps);
+        if (apps.length === 0) {
+          setApplicationsError('No applications with visible windows found. Try opening some applications with windows.');
+        }
+      } else {
+        console.error('Failed to load applications:', result.error);
+        setApplicationsError(result.error || 'Failed to load applications');
+      }
+    } catch (error) {
+      console.error('Error loading applications:', error);
+      setApplicationsError(`Error: ${error.message || 'Failed to load applications'}`);
+    } finally {
+      setApplicationsLoading(false);
+    }
+  };
+
+  const handleApplicationAction = async (processId, action) => {
+    if (!window.electronAPI) {
+      return;
+    }
+
+    const actionKey = `${processId}-${action}`;
+    setApplicationActionLoading(prev => ({ ...prev, [actionKey]: true }));
+
+    try {
+      let result;
+      switch (action) {
+        case 'close':
+          result = await window.electronAPI.closeApplication(processId);
+          break;
+        case 'force-close':
+          result = await window.electronAPI.forceCloseApplication(processId);
+          break;
+        case 'focus':
+          result = await window.electronAPI.focusApplication(processId);
+          break;
+        case 'minimize':
+          result = await window.electronAPI.minimizeApplication(processId);
+          break;
+        default:
+          return;
+      }
+
+      if (result.success) {
+        // Refresh applications list after action
+        await loadApplications();
+      } else {
+        alert(`Failed to ${action} application: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing application:`, error);
+      alert(`Failed to ${action} application: ${error.message || 'Unknown error'}`);
+    } finally {
+      setApplicationActionLoading(prev => ({ ...prev, [actionKey]: false }));
+    }
+  };
+
   const handleLogout = async () => {
     try {
       if (window.electronAPI) {
@@ -176,13 +413,78 @@ function Dashboard({ user, onLogout }) {
     }
   };
 
+  // Windows Service Status Codes:
+  // 1 = Stopped, 2 = Start Pending, 3 = Stop Pending, 4 = Running,
+  // 5 = Continue Pending, 6 = Pause Pending, 7 = Paused
+  
+  // Convert numeric status code to status string
+  const getStatusString = (status) => {
+    if (status === null || status === undefined) return 'unknown';
+    
+    const statusNum = typeof status === 'number' ? status : parseInt(status, 10);
+    
+    if (isNaN(statusNum)) {
+      // If it's not a number, try to handle string status
+      const statusStr = String(status).toLowerCase().trim();
+      return statusStr;
+    }
+    
+    switch (statusNum) {
+      case 1:
+        return 'stopped';
+      case 2:
+        return 'start pending';
+      case 3:
+        return 'stop pending';
+      case 4:
+        return 'running';
+      case 5:
+        return 'continue pending';
+      case 6:
+        return 'pause pending';
+      case 7:
+        return 'paused';
+      default:
+        return 'unknown';
+    }
+  };
+
+  // Get display name for status
+  const getStatusDisplayName = (status) => {
+    const statusStr = getStatusString(status);
+    switch (statusStr) {
+      case 'stopped':
+        return 'Stopped';
+      case 'start pending':
+        return 'Start Pending';
+      case 'stop pending':
+        return 'Stop Pending';
+      case 'running':
+        return 'Running';
+      case 'continue pending':
+        return 'Continue Pending';
+      case 'pause pending':
+        return 'Pause Pending';
+      case 'paused':
+        return 'Paused';
+      default:
+        return 'Unknown';
+    }
+  };
+
   const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
+    const statusStr = getStatusString(status);
+    switch (statusStr) {
       case 'running':
         return '#22c55e';
       case 'stopped':
+      case 'stop pending':
         return '#ef4444';
       case 'paused':
+        return '#fbbf24';
+      case 'start pending':
+      case 'continue pending':
+      case 'pause pending':
         return '#fbbf24';
       default:
         return '#6b7280';
@@ -191,14 +493,18 @@ function Dashboard({ user, onLogout }) {
 
   const getStatusSummary = () => {
     const dbConnected = dbStatus.status === 'connected';
-    const runningServices = services.filter(s => s.status?.toLowerCase() === 'running').length;
+    const runningServices = services.filter(s => {
+      const statusNum = typeof s.status === 'number' ? s.status : parseInt(s.status, 10);
+      return statusNum === 4; // Running status code
+    }).length;
     const totalServices = services.length;
+    const runningApplications = applications.length;
     
-    return { dbConnected, runningServices, totalServices };
+    return { dbConnected, runningServices, totalServices, runningApplications };
   };
 
   const renderOverviewTab = () => {
-    const { dbConnected, runningServices, totalServices } = getStatusSummary();
+    const { dbConnected, runningServices, totalServices, runningApplications } = getStatusSummary();
     
     return (
       <div className="tab-content">
@@ -253,6 +559,15 @@ function Dashboard({ user, onLogout }) {
             </div>
             <div className="stat-card__indicator stat-card__indicator--info"></div>
           </div>
+
+          <div className="stat-card">
+            <div className="stat-card__icon"><i className="fa-solid fa-window-restore" aria-hidden="true"></i></div>
+            <div className="stat-card__content">
+              <div className="stat-card__value">{runningApplications}</div>
+              <div className="stat-card__label">Running Apps</div>
+            </div>
+            <div className="stat-card__indicator stat-card__indicator--success"></div>
+          </div>
         </div>
 
         {user.domain && (
@@ -278,6 +593,13 @@ function Dashboard({ user, onLogout }) {
           >
             <i className="fa-solid fa-gear overview-action-btn__icon" aria-hidden="true"></i>
             <span>Manage Services</span>
+          </button>
+          <button 
+            className="overview-action-btn"
+            onClick={() => setActiveTab('applications')}
+          >
+            <i className="fa-solid fa-window-restore overview-action-btn__icon" aria-hidden="true"></i>
+            <span>Control Applications</span>
           </button>
           <button 
             className="overview-action-btn"
@@ -343,6 +665,62 @@ function Dashboard({ user, onLogout }) {
   };
 
   const renderServicesTab = () => {
+    // Helper function to get service status string from numeric code
+    const getServiceStatusString = (service) => {
+      return getStatusString(service.status);
+    };
+
+    // Helper function to check if service is running (status code 4)
+    const isServiceRunning = (service) => {
+      const statusNum = typeof service.status === 'number' ? service.status : parseInt(service.status, 10);
+      return statusNum === 4;
+    };
+
+    // Helper function to check if service is stopped (status code 1 or 3)
+    const isServiceStopped = (service) => {
+      const statusNum = typeof service.status === 'number' ? service.status : parseInt(service.status, 10);
+      return statusNum === 1 || statusNum === 3; // Stopped or Stop Pending
+    };
+
+    // Helper function to check if service is paused (status code 7)
+    const isServicePaused = (service) => {
+      const statusNum = typeof service.status === 'number' ? service.status : parseInt(service.status, 10);
+      return statusNum === 7;
+    };
+
+    // Calculate filter counts
+    const getFilterCounts = () => {
+      const runningCount = services.filter(s => isServiceRunning(s)).length;
+      const stoppedCount = services.filter(s => isServiceStopped(s)).length;
+      const pausedCount = services.filter(s => isServicePaused(s)).length;
+      
+      return { runningCount, stoppedCount, pausedCount };
+    };
+
+    const { runningCount, stoppedCount, pausedCount } = getFilterCounts();
+
+    // Filter services based on selected filter
+    const getFilteredServices = () => {
+      if (serviceFilter === 'all') {
+        return services;
+      }
+      
+      return services.filter((service) => {
+        switch (serviceFilter) {
+          case 'running':
+            return isServiceRunning(service);
+          case 'stopped':
+            return isServiceStopped(service);
+          case 'paused':
+            return isServicePaused(service);
+          default:
+            return true;
+        }
+      });
+    };
+
+    const filteredServices = getFilteredServices();
+
     return (
       <div className="tab-content">
         <div className="services-section">
@@ -358,6 +736,38 @@ function Dashboard({ user, onLogout }) {
           </button>
         </div>
 
+        {/* Filter Buttons */}
+        <div className="services-section__filters">
+          <button
+            className={`services-filter-btn ${serviceFilter === 'all' ? 'services-filter-btn--active' : ''}`}
+            onClick={() => setServiceFilter('all')}
+          >
+            <i className="fa-solid fa-list" aria-hidden="true"></i>
+            <span>All ({services.length})</span>
+          </button>
+          <button
+            className={`services-filter-btn ${serviceFilter === 'running' ? 'services-filter-btn--active' : ''}`}
+            onClick={() => setServiceFilter('running')}
+          >
+            <i className="fa-solid fa-circle-play" aria-hidden="true"></i>
+            <span>Running ({runningCount})</span>
+          </button>
+          <button
+            className={`services-filter-btn ${serviceFilter === 'stopped' ? 'services-filter-btn--active' : ''}`}
+            onClick={() => setServiceFilter('stopped')}
+          >
+            <i className="fa-solid fa-circle-stop" aria-hidden="true"></i>
+            <span>Stopped ({stoppedCount})</span>
+          </button>
+          <button
+            className={`services-filter-btn ${serviceFilter === 'paused' ? 'services-filter-btn--active' : ''}`}
+            onClick={() => setServiceFilter('paused')}
+          >
+            <i className="fa-solid fa-circle-pause" aria-hidden="true"></i>
+            <span>Paused ({pausedCount})</span>
+          </button>
+        </div>
+
         {servicesError && (
           <div className="services-section__error">
             <span>{servicesError}</span>
@@ -370,15 +780,17 @@ function Dashboard({ user, onLogout }) {
           </div>
         ) : (
           <div className="services-list">
-            {services.length === 0 ? (
+            {filteredServices.length === 0 ? (
               <div className="services-list__empty">
-                <span>No services found</span>
+                <span>No {serviceFilter !== 'all' ? serviceFilter : ''} services found</span>
               </div>
             ) : (
-              services.map((service) => {
-                const isRunning = service.status?.toLowerCase() === 'running';
-                const isStopped = service.status?.toLowerCase() === 'stopped';
+              filteredServices.map((service) => {
+                const isRunning = isServiceRunning(service);
+                const isStopped = isServiceStopped(service);
+                const isPaused = isServicePaused(service);
                 const actionKey = service.name;
+                const statusDisplayName = getStatusDisplayName(service.status);
 
                 return (
                   <div key={service.name} className="service-item">
@@ -393,7 +805,7 @@ function Dashboard({ user, onLogout }) {
                             className="service-item__status-dot"
                             style={{ backgroundColor: getStatusColor(service.status) }}
                           ></span>
-                          {service.status || 'Unknown'}
+                          {statusDisplayName}
                         </span>
                       </div>
                       <div className="service-item__details">
@@ -406,7 +818,7 @@ function Dashboard({ user, onLogout }) {
                       </div>
                     </div>
                     <div className="service-item__actions">
-                      {isStopped && (
+                      {(isStopped || (!isRunning && !isPaused)) && (
                         <button
                           className="service-item__action service-item__action--start"
                           onClick={() => handleServiceAction(service.name, 'start')}
@@ -421,7 +833,7 @@ function Dashboard({ user, onLogout }) {
                           Start
                         </button>
                       )}
-                      {isRunning && (
+                      {(isRunning || isPaused) && (
                         <>
                           <button
                             className="service-item__action service-item__action--stop"
@@ -436,19 +848,21 @@ function Dashboard({ user, onLogout }) {
                             )}
                             Stop
                           </button>
-                          <button
-                            className="service-item__action service-item__action--restart"
-                            onClick={() => handleServiceAction(service.name, 'restart')}
-                            disabled={actionLoading[`${actionKey}-restart`]}
-                            title="Restart service"
-                          >
-                            {actionLoading[`${actionKey}-restart`] ? (
-                              <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                            ) : (
-                              <i className="fa-solid fa-rotate" aria-hidden="true"></i>
-                            )}
-                            Restart
-                          </button>
+                          {isRunning && (
+                            <button
+                              className="service-item__action service-item__action--restart"
+                              onClick={() => handleServiceAction(service.name, 'restart')}
+                              disabled={actionLoading[`${actionKey}-restart`]}
+                              title="Restart service"
+                            >
+                              {actionLoading[`${actionKey}-restart`] ? (
+                                <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                              ) : (
+                                <i className="fa-solid fa-rotate" aria-hidden="true"></i>
+                              )}
+                              Restart
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -458,6 +872,287 @@ function Dashboard({ user, onLogout }) {
             )}
           </div>
         )}
+        </div>
+
+        {/* Test Services Section */}
+        <div className="services-section" style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '2px solid #e5e7eb' }}>
+          <div className="services-section__header">
+            <h2 className="services-section__title">Test Services</h2>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {testServicesTotalSize && (
+                <span style={{ 
+                  fontSize: '0.875rem', 
+                  color: '#6b7280',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem'
+                }}>
+                  <i className="fa-solid fa-hard-drive" aria-hidden="true"></i>
+                  Total: {testServicesTotalSize.totalMB} MB ({testServicesTotalSize.count} services)
+                </span>
+              )}
+              <button
+                className="services-section__refresh"
+                onClick={loadTestServices}
+                disabled={testServicesLoading}
+                title="Refresh test services"
+              >
+                <i className={`fa-solid fa-rotate ${testServicesLoading ? 'fa-spin' : ''}`} aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              className="service-item__action service-item__action--start"
+              onClick={handleCreateTestServices}
+              disabled={testServicesActionLoading['create-all'] || testServices.length >= 5}
+              title="Create 5 test services (10MB each)"
+              style={{ 
+                padding: '0.5rem 1rem',
+                fontSize: '0.875rem',
+                opacity: testServices.length >= 5 ? 0.5 : 1
+              }}
+            >
+              {testServicesActionLoading['create-all'] ? (
+                <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+              ) : (
+                <i className="fa-solid fa-plus" aria-hidden="true"></i>
+              )}
+              Create 5 Test Services
+            </button>
+            {testServices.length > 0 && (
+              <button
+                className="service-item__action service-item__action--stop"
+                onClick={handleStopAllTestServices}
+                disabled={testServicesActionLoading['stop-all']}
+                title="Stop all test services"
+                style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+              >
+                {testServicesActionLoading['stop-all'] ? (
+                  <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                ) : (
+                  <i className="fa-solid fa-stop" aria-hidden="true"></i>
+                )}
+                Stop All Test Services
+              </button>
+            )}
+          </div>
+
+          {testServicesError && (
+            <div className="services-section__error">
+              <span>{testServicesError}</span>
+            </div>
+          )}
+
+          {testServicesLoading && testServices.length === 0 ? (
+            <div className="services-section__loading">
+              <span>Loading test services...</span>
+            </div>
+          ) : (
+            <div className="services-list">
+              {testServices.length === 0 ? (
+                <div className="services-list__empty">
+                  <span>No test services created. Click "Create 5 Test Services" to create test services that will increase application size.</span>
+                </div>
+              ) : (
+                testServices.map((service) => {
+                  const actionKey = service.name;
+
+                  return (
+                    <div key={service.name} className="service-item">
+                      <div className="service-item__info">
+                        <div className="service-item__header">
+                          <span className="service-item__name">{service.displayName || service.name}</span>
+                          <span
+                            className="service-item__status"
+                            style={{ color: '#22c55e' }}
+                          >
+                            <span
+                              className="service-item__status-dot"
+                              style={{ backgroundColor: '#22c55e' }}
+                            ></span>
+                            Running
+                          </span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">Name:</span>
+                          <span className="service-item__detail-value">{service.name}</span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">Size:</span>
+                          <span className="service-item__detail-value">{service.sizeMB} MB</span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">Created:</span>
+                          <span className="service-item__detail-value">
+                            {new Date(service.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="service-item__actions">
+                        <button
+                          className="service-item__action service-item__action--stop"
+                          onClick={() => handleStopTestService(service.name)}
+                          disabled={testServicesActionLoading[actionKey]}
+                          title="Stop and remove test service"
+                        >
+                          {testServicesActionLoading[actionKey] ? (
+                            <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                          ) : (
+                            <i className="fa-solid fa-stop" aria-hidden="true"></i>
+                          )}
+                          Stop
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderApplicationsTab = () => {
+    return (
+      <div className="tab-content">
+        <div className="services-section">
+          <div className="services-section__header">
+            <h2 className="services-section__title">Running Applications</h2>
+            <button
+              className="services-section__refresh"
+              onClick={loadApplications}
+              disabled={applicationsLoading}
+              title="Refresh applications"
+            >
+              <i className={`fa-solid fa-rotate ${applicationsLoading ? 'fa-spin' : ''}`} aria-hidden="true"></i>
+            </button>
+          </div>
+
+          {applicationsError && (
+            <div className="services-section__error">
+              <span>{applicationsError}</span>
+              {applicationsError.includes('API not available') && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                  <strong>Note:</strong> Press Ctrl+C in the terminal and run <code>npm run electron:dev</code> again to restart the application.
+                </div>
+              )}
+            </div>
+          )}
+
+          {applicationsLoading && applications.length === 0 ? (
+            <div className="services-section__loading">
+              <span>Loading applications...</span>
+            </div>
+          ) : (
+            <div className="services-list">
+              {applications.length === 0 ? (
+                <div className="services-list__empty">
+                  <span>No applications with windows are currently running</span>
+                </div>
+              ) : (
+                applications.map((app) => {
+                  const actionKey = app.id;
+
+                  return (
+                    <div key={app.id} className="service-item">
+                      <div className="service-item__info">
+                        <div className="service-item__header">
+                          <span className="service-item__name">{app.title}</span>
+                          <span
+                            className="service-item__status"
+                            style={{ color: '#22c55e' }}
+                          >
+                            <span
+                              className="service-item__status-dot"
+                              style={{ backgroundColor: '#22c55e' }}
+                            ></span>
+                            Running
+                          </span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">Process:</span>
+                          <span className="service-item__detail-value">{app.name}</span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">PID:</span>
+                          <span className="service-item__detail-value">{app.id}</span>
+                        </div>
+                        <div className="service-item__details">
+                          <span className="service-item__detail-label">Memory:</span>
+                          <span className="service-item__detail-value">{app.memory.toFixed(2)} MB</span>
+                        </div>
+                        {app.cpu > 0 && (
+                          <div className="service-item__details">
+                            <span className="service-item__detail-label">CPU Time:</span>
+                            <span className="service-item__detail-value">{app.cpu.toFixed(2)}s</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="service-item__actions">
+                        <button
+                          className="service-item__action service-item__action--start"
+                          onClick={() => handleApplicationAction(app.id, 'focus')}
+                          disabled={applicationActionLoading[`${actionKey}-focus`]}
+                          title="Focus window"
+                        >
+                          {applicationActionLoading[`${actionKey}-focus`] ? (
+                            <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                          ) : (
+                            <i className="fa-solid fa-eye" aria-hidden="true"></i>
+                          )}
+                          Focus
+                        </button>
+                        <button
+                          className="service-item__action service-item__action--restart"
+                          onClick={() => handleApplicationAction(app.id, 'minimize')}
+                          disabled={applicationActionLoading[`${actionKey}-minimize`]}
+                          title="Minimize window"
+                        >
+                          {applicationActionLoading[`${actionKey}-minimize`] ? (
+                            <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                          ) : (
+                            <i className="fa-solid fa-window-minimize" aria-hidden="true"></i>
+                          )}
+                          Minimize
+                        </button>
+                        <button
+                          className="service-item__action service-item__action--stop"
+                          onClick={() => handleApplicationAction(app.id, 'close')}
+                          disabled={applicationActionLoading[`${actionKey}-close`]}
+                          title="Close application"
+                        >
+                          {applicationActionLoading[`${actionKey}-close`] ? (
+                            <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                          ) : (
+                            <i className="fa-solid fa-xmark" aria-hidden="true"></i>
+                          )}
+                          Close
+                        </button>
+                        <button
+                          className="service-item__action service-item__action--stop"
+                          onClick={() => handleApplicationAction(app.id, 'force-close')}
+                          disabled={applicationActionLoading[`${actionKey}-force-close`]}
+                          title="Force close application"
+                          style={{ backgroundColor: '#dc2626' }}
+                        >
+                          {applicationActionLoading[`${actionKey}-force-close`] ? (
+                            <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                          ) : (
+                            <i className="fa-solid fa-skull" aria-hidden="true"></i>
+                          )}
+                          Force Kill
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -565,6 +1260,7 @@ function Dashboard({ user, onLogout }) {
           {activeTab === 'overview' && renderOverviewTab()}
           {activeTab === 'database' && renderDatabaseTab()}
           {activeTab === 'services' && renderServicesTab()}
+          {activeTab === 'applications' && renderApplicationsTab()}
           {activeTab === 'monitoring' && renderMonitoringTab()}
           {activeTab === 'profile' && renderProfileTab()}
         </div>

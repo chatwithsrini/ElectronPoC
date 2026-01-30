@@ -4,6 +4,11 @@ directories:
   output: release
   buildResources: build
 
+# Build configuration
+buildVersion: ${version}
+compression: normal
+removePackageScripts: true
+
 files:
   - dist/**/*
   - main.js
@@ -42,9 +47,9 @@ nsis:
   warningsAsErrors: false
   # Custom installer settings
   displayLanguageSelector: false
-  installerHeader: none
-  installerSidebar: none
-  uninstallerSidebar: none
+  # installerHeader: none  # Removed - use default header
+  # installerSidebar: none  # Removed - use default sidebar
+  # uninstallerSidebar: none  # Removed - use default sidebar
   # MUI settings for modern look
   unicode: true
   perMachine: true

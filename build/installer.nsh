@@ -1,18 +1,21 @@
 ; ================================================================
 ; CUSTOM NSIS INSTALLER SCRIPT FOR ELECTRON POC
 ; ================================================================
-; This is a fully customized installer with:
-; - Custom welcome page with branding
-; - Pre-installation system requirements validation page
-; - Visual feedback for each requirement check
-; - Professional error handling
-; - Modern UI with custom dialogs
+; 4-Step Installer:
+; 1. Simple Welcome Page
+; 2. System Configuration Comparison (Required vs Actual)
+; 3. Installation Directory with Disk Space Check
+; 4. Finish Page
 ; ================================================================
 
 !include "LogicLib.nsh"
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
 !include "WinMessages.nsh"
+!include "FileFunc.nsh"
+
+!insertmacro GetRoot
+!insertmacro DriveSpace
 
 ; ================================================================
 ; GLOBAL VARIABLES
@@ -24,32 +27,18 @@ Var /GLOBAL SYSTEM_RAM_GB
 Var /GLOBAL FREE_DISK_SPACE_GB
 Var /GLOBAL IS_ADMIN
 Var /GLOBAL ARCHITECTURE
-Var /GLOBAL VALIDATION_PASSED
-Var /GLOBAL VALIDATION_MESSAGE
+Var /GLOBAL AllChecksPassed
+Var /GLOBAL INSTDIR_FREE_SPACE_GB
+Var /GLOBAL ConfigChecksRun
 
-; UI Control Handles for Custom Page
+; UI Control Handles
 Var /GLOBAL Dialog
-Var /GLOBAL Label_Title
-Var /GLOBAL Label_Subtitle
-Var /GLOBAL Label_OS
-Var /GLOBAL Label_Arch
-Var /GLOBAL Label_RAM
-Var /GLOBAL Label_Disk
-Var /GLOBAL Label_Admin
-Var /GLOBAL Label_Result
-Var /GLOBAL Check_OS
-Var /GLOBAL Check_Arch
-Var /GLOBAL Check_RAM
-Var /GLOBAL Check_Disk
-Var /GLOBAL Check_Admin
-Var /GLOBAL ProgressBar
 
 ; ================================================================
 ; MINIMUM REQUIREMENTS CONFIGURATION
 ; ================================================================
-; Customize these values to match your application's needs
 !define APP_NAME "Electron POC"
-!define APP_PUBLISHER "Presidio"
+!define APP_PUBLISHER "DentalXChange"
 !define MIN_OS_MAJOR 10
 !define MIN_OS_BUILD 10240
 !define MIN_RAM_GB 4
@@ -60,439 +49,724 @@ Var /GLOBAL ProgressBar
 ; SYSTEM REQUIREMENT CHECK FUNCTIONS
 ; ================================================================
 
-; Function to check Windows version (silent, returns status)
 Function CheckWindowsVersion
   Push $R0
-  
-  ; Get Windows version using System plugin
   System::Call 'kernel32::GetVersion() i .r0'
   IntOp $OS_VERSION_MAJOR $0 & 0xFF
   IntOp $OS_VERSION_MINOR $0 & 0xFF00
   IntOp $OS_VERSION_MINOR $OS_VERSION_MINOR / 256
-  
-  ; Get build number from registry
   ReadRegStr $OS_BUILD HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"
   ${If} $OS_BUILD == ""
     ReadRegStr $OS_BUILD HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuild"
   ${EndIf}
-  
-  ; Convert build number to integer for comparison
+  ${If} $OS_BUILD == ""
+    StrCpy $OS_BUILD "0"
+  ${EndIf}
   IntOp $R0 0 + $OS_BUILD
-  
-  ; Check if Windows 10 or later and build number meets minimum
   ${If} $OS_VERSION_MAJOR < ${MIN_OS_MAJOR}
-    StrCpy $VALIDATION_PASSED "0"
-    StrCpy $VALIDATION_MESSAGE "Failed: Requires Windows ${MIN_OS_MAJOR} or later$\nFound: Windows $OS_VERSION_MAJOR.$OS_VERSION_MINOR"
-    Pop $R0
-    Return
+    StrCpy $AllChecksPassed "0"
+  ${ElseIf} $R0 < ${MIN_OS_BUILD}
+    StrCpy $AllChecksPassed "0"
   ${EndIf}
-  
-  ${If} $R0 < ${MIN_OS_BUILD}
-    StrCpy $VALIDATION_PASSED "0"
-    StrCpy $VALIDATION_MESSAGE "Failed: Requires Windows 10 Build ${MIN_OS_BUILD}+$\nFound: Build $OS_BUILD"
-    Pop $R0
-    Return
-  ${EndIf}
-  
-  StrCpy $VALIDATION_PASSED "1"
-  DetailPrint "✓ Windows version: $OS_VERSION_MAJOR.$OS_VERSION_MINOR (Build $OS_BUILD)"
-  
   Pop $R0
 FunctionEnd
 
-; Function to check system architecture (64-bit, silent)
 Function CheckArchitecture
   Push $0
-  
-  ; Check processor architecture from registry
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "PROCESSOR_ARCHITECTURE"
   ${If} $0 == ""
     ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "PROCESSOR_ARCHITEW6432"
   ${EndIf}
-  
-  ; Check if 64-bit (AMD64 or x64)
   ${If} $0 == "AMD64"
     StrCpy $ARCHITECTURE "x64"
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "✓ Architecture: 64-bit (AMD64)"
   ${ElseIf} $0 == "x64"
     StrCpy $ARCHITECTURE "x64"
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "✓ Architecture: 64-bit (x64)"
   ${Else}
-    StrCpy $VALIDATION_PASSED "0"
-    StrCpy $VALIDATION_MESSAGE "Failed: Requires 64-bit (x64) architecture$\nFound: $0"
+    StrCpy $ARCHITECTURE $0
+    StrCpy $AllChecksPassed "0"
   ${EndIf}
-  
+  ${If} $ARCHITECTURE == ""
+    StrCpy $ARCHITECTURE "Unknown"
+  ${EndIf}
   Pop $0
 FunctionEnd
 
-; Function to check system RAM (silent)
 Function CheckRAM
   Push $0
   Push $1
-  Push $R2
-  Push $R3
-  Push $R4
-  Push $R5
-  Push $R6
+  Push $2
+  Push $3
+  Push $4
   
-  ; Use System plugin with GlobalMemoryStatusEx
+  StrCpy $SYSTEM_RAM_GB "8"
+  
+  ; Method 1: Use simple PowerShell command with direct output
   ClearErrors
-  System::Call '*(&i64 0) i .r0'
-  ${If} ${Errors}
-    StrCpy $SYSTEM_RAM_GB ${MIN_RAM_GB}
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "⚠ RAM: Could not detect, assuming ${MIN_RAM_GB}GB"
-    Goto CheckRAM_End
-  ${EndIf}
-  ${If} $r0 == 0
-    StrCpy $SYSTEM_RAM_GB ${MIN_RAM_GB}
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "⚠ RAM: Could not detect, assuming ${MIN_RAM_GB}GB"
-    Goto CheckRAM_End
-  ${EndIf}
+  nsExec::ExecToStack 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB)"'
+  Pop $0  ; return code
+  Pop $1  ; output
   
-  ; Set dwLength = 64 (first 4 bytes)
-  System::Call '*$0(i 64)'
-  ${If} ${Errors}
-    System::Free $0
-    StrCpy $SYSTEM_RAM_GB ${MIN_RAM_GB}
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "⚠ RAM: Could not detect, assuming ${MIN_RAM_GB}GB"
-    Goto CheckRAM_End
-  ${EndIf}
-  
-  ; Call GlobalMemoryStatusEx
-  System::Call 'kernel32::GlobalMemoryStatusEx(i r0) i .r1'
-  
-  ${If} $r1 != 0
-    ; Successfully called - read ullTotalPhys (8 bytes starting at offset 8)
-    IntOp $R2 $r0 + 8
-    System::Call '*$R2(i .r3, i .r4)'
-    System::Free $0
+  ${If} $0 == 0
+    ; Trim the output
+    Push $1
+    Call TrimString
+    Pop $1
     
-    ; Handle 64-bit value: r3 = low 32 bits, r4 = high 32 bits
-    ${If} $r4 > 0
-      IntOp $R5 $r4 * 4
-      IntOp $R6 $r3 / 1073741824
-      IntOp $R5 $R5 + $R6
-      StrCpy $SYSTEM_RAM_GB $R5
-    ${Else}
-      IntOp $R5 $r3 / 1073741824
-      StrCpy $SYSTEM_RAM_GB $R5
+    ; Check if it's a valid number
+    ${If} $1 != ""
+      IntOp $2 $1 + 0
+      ${If} $2 >= 1
+      ${AndIf} $2 <= 1024
+        StrCpy $SYSTEM_RAM_GB $1
+        DetailPrint "RAM Detection: Found $SYSTEM_RAM_GB GB via PowerShell"
+        Goto CheckRAM_Validate
+      ${EndIf}
     ${EndIf}
-    
-    ; Validate RAM
-    ${If} $SYSTEM_RAM_GB < ${MIN_RAM_GB}
-      StrCpy $VALIDATION_PASSED "0"
-      StrCpy $VALIDATION_MESSAGE "Failed: Minimum ${MIN_RAM_GB}GB RAM required$\nFound: $SYSTEM_RAM_GB GB"
-    ${Else}
-      StrCpy $VALIDATION_PASSED "1"
-      DetailPrint "✓ RAM: $SYSTEM_RAM_GB GB available"
-    ${EndIf}
-  ${Else}
-    System::Free $0
-    StrCpy $SYSTEM_RAM_GB ${MIN_RAM_GB}
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "⚠ RAM: Could not detect, assuming ${MIN_RAM_GB}GB"
   ${EndIf}
   
-  CheckRAM_End:
-  Pop $R6
-  Pop $R5
-  Pop $R4
-  Pop $R3
-  Pop $R2
+  ; Method 2: Try with Get-WmiObject (older PowerShell version compatibility)
+  ClearErrors
+  nsExec::ExecToStack 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Math]::Round((Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory/1GB)"'
+  Pop $0
+  Pop $1
+  
+  ${If} $0 == 0
+    Push $1
+    Call TrimString
+    Pop $1
+    
+    ${If} $1 != ""
+      IntOp $2 $1 + 0
+      ${If} $2 >= 1
+      ${AndIf} $2 <= 1024
+        StrCpy $SYSTEM_RAM_GB $1
+        DetailPrint "RAM Detection: Found $SYSTEM_RAM_GB GB via WMI"
+        Goto CheckRAM_Validate
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  
+  ; Method 3: Try WMIC with temp file
+  GetTempFileName $3
+  ClearErrors
+  nsExec::ExecToLog 'cmd /c wmic computersystem get totalphysicalmemory /value > "$3" 2>&1'
+  Pop $0
+  
+  ${If} $0 == 0
+    ClearErrors
+    FileOpen $4 "$3" r
+    ${IfNot} ${Errors}
+      ; Read file line by line
+      CheckRAM_WMICLoop:
+        ClearErrors
+        FileRead $4 $1
+        ${If} ${Errors}
+          FileClose $4
+          Goto CheckRAM_WMICDone
+        ${EndIf}
+        
+        ; Trim line
+        Push $1
+        Call TrimString
+        Pop $1
+        
+        ; Look for TotalPhysicalMemory=
+        StrLen $2 $1
+        ${If} $2 > 21
+          StrCpy $0 $1 21
+          ${If} $0 == "TotalPhysicalMemory="
+            ; Extract bytes value
+            StrCpy $2 $1 "" 21
+            Push $2
+            Call TrimString
+            Pop $2
+            
+            ; Convert bytes to GB
+            ; Using better math: bytes / (1024*1024*1024) = bytes / 1073741824
+            ${If} $2 > 1000000000
+              ; For numbers > 1 billion, divide by billion and adjust
+              System::Int64Op $2 / 1073741824
+              Pop $SYSTEM_RAM_GB
+              
+              ${If} $SYSTEM_RAM_GB >= 1
+              ${AndIf} $SYSTEM_RAM_GB <= 1024
+                DetailPrint "RAM Detection: Found $SYSTEM_RAM_GB GB via WMIC"
+                FileClose $4
+                Delete "$3"
+                Goto CheckRAM_Validate
+              ${EndIf}
+            ${EndIf}
+          ${EndIf}
+        ${EndIf}
+        
+        Goto CheckRAM_WMICLoop
+      
+      CheckRAM_WMICDone:
+        FileClose $4
+    ${EndIf}
+    Delete "$3"
+  ${EndIf}
+  
+  ; Method 4: Try systeminfo command
+  GetTempFileName $3
+  ClearErrors
+  nsExec::ExecToLog 'cmd /c systeminfo | findstr /C:"Total Physical Memory" > "$3" 2>&1'
+  Pop $0
+  
+  ${If} $0 == 0
+    ClearErrors
+    FileOpen $4 "$3" r
+    ${IfNot} ${Errors}
+      FileRead $4 $1
+      FileClose $4
+      
+      ${IfNot} ${Errors}
+        ; Example output: "Total Physical Memory:     16,384 MB"
+        ; Look for MB or GB in the string
+        Push $1
+        Call ExtractRAMFromSystemInfo
+        Pop $2
+        
+        ${If} $2 != ""
+        ${AndIf} $2 != "0"
+          IntOp $0 $2 + 0
+          ${If} $0 >= 1
+          ${AndIf} $0 <= 1024
+            StrCpy $SYSTEM_RAM_GB $2
+            DetailPrint "RAM Detection: Found $SYSTEM_RAM_GB GB via systeminfo"
+            Delete "$3"
+            Goto CheckRAM_Validate
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
+    ${EndIf}
+    Delete "$3"
+  ${EndIf}
+  
+  ; If all methods fail, use default
+  StrCpy $SYSTEM_RAM_GB "8"
+  DetailPrint "RAM Detection: Using fallback value $SYSTEM_RAM_GB GB"
+  
+  CheckRAM_Validate:
+  ; Ensure we have a valid number
+  IntOp $0 $SYSTEM_RAM_GB + 0
+  ${If} $0 < 1
+    StrCpy $SYSTEM_RAM_GB "8"
+  ${EndIf}
+  
+  ; Compare with minimum requirement
+  IntCmp $SYSTEM_RAM_GB ${MIN_RAM_GB} CheckRAM_OK CheckRAM_Fail CheckRAM_OK
+  CheckRAM_Fail:
+    StrCpy $AllChecksPassed "0"
+  CheckRAM_OK:
+  
+  Pop $4
+  Pop $3
+  Pop $2
   Pop $1
   Pop $0
 FunctionEnd
 
-
-; Function to check free disk space (silent)
-Function CheckDiskSpace
-  Push $R0
-  Push $R1
+; Extract RAM GB from systeminfo output
+; Input: Stack top = systeminfo line (e.g., "Total Physical Memory:     16,384 MB")
+; Output: Stack top = RAM in GB
+Function ExtractRAMFromSystemInfo
+  Exch $0  ; Get input string
   Push $1
   Push $2
   Push $3
   
-  ; Get the root drive of the installation directory
-  StrCpy $R0 "$INSTDIR" 3
+  ; Remove commas
+  StrCpy $1 ""
+  StrLen $2 $0
+  IntOp $2 $2 - 1
   
-  ; Use System plugin to get free disk space
-  System::Call 'kernel32::GetDiskFreeSpaceEx(t "$R0", *l .r1, *l .r2, *l .r3)'
+  ExtractRAM_RemoveCommas:
+    ${If} $2 < 0
+      Goto ExtractRAM_Parse
+    ${EndIf}
+    StrCpy $3 $0 1 $2
+    ${If} $3 != ","
+      StrCpy $1 "$3$1"
+    ${EndIf}
+    IntOp $2 $2 - 1
+    Goto ExtractRAM_RemoveCommas
   
-  ; r1 contains free bytes available to caller
-  ; Convert to GB (divide by 1073741824 = 1024^3)
-  IntOp $R1 $r1 / 1073741824
-  StrCpy $FREE_DISK_SPACE_GB $R1
+  ExtractRAM_Parse:
+    ; Now $1 contains string without commas
+    ; Look for number followed by MB or GB
+    StrLen $2 $1
+    IntOp $2 $2 - 1
+    
+    ExtractRAM_FindNumber:
+      ${If} $2 < 0
+        StrCpy $0 "0"
+        Goto ExtractRAM_Done
+      ${EndIf}
+      
+      StrCpy $3 $1 2 $2
+      ${If} $3 == "MB"
+      ${OrIf} $3 == "mb"
+        ; Found MB, extract number before it
+        IntOp $2 $2 - 1
+        ExtractRAM_GetMBNumber:
+          ${If} $2 < 0
+            StrCpy $0 "0"
+            Goto ExtractRAM_Done
+          ${EndIf}
+          StrCpy $3 $1 1 $2
+          ${If} $3 >= "0"
+          ${AndIf} $3 <= "9"
+            IntOp $2 $2 - 1
+            Goto ExtractRAM_GetMBNumber
+          ${EndIf}
+          ; Now $2 points to last non-digit
+          IntOp $2 $2 + 1
+          StrCpy $3 $1 "" $2  ; Get number and MB
+          StrCpy $3 $3 -3     ; Remove " MB"
+          Push $3
+          Call TrimString
+          Pop $3
+          ; Convert MB to GB
+          IntOp $0 $3 / 1024
+          ${If} $0 < 1
+            StrCpy $0 "1"
+          ${EndIf}
+          Goto ExtractRAM_Done
+      ${EndIf}
+      
+      ${If} $3 == "GB"
+      ${OrIf} $3 == "gb"
+        ; Found GB, extract number before it
+        IntOp $2 $2 - 1
+        ExtractRAM_GetGBNumber:
+          ${If} $2 < 0
+            StrCpy $0 "0"
+            Goto ExtractRAM_Done
+          ${EndIf}
+          StrCpy $3 $1 1 $2
+          ${If} $3 >= "0"
+          ${AndIf} $3 <= "9"
+            IntOp $2 $2 - 1
+            Goto ExtractRAM_GetGBNumber
+          ${EndIf}
+          ; Now $2 points to last non-digit
+          IntOp $2 $2 + 1
+          StrCpy $3 $1 "" $2  ; Get number and GB
+          StrCpy $3 $3 -3     ; Remove " GB"
+          Push $3
+          Call TrimString
+          Pop $0
+          Goto ExtractRAM_Done
+      ${EndIf}
+      
+      IntOp $2 $2 - 1
+      Goto ExtractRAM_FindNumber
   
-  ${If} $FREE_DISK_SPACE_GB < ${MIN_DISK_SPACE_GB}
-    StrCpy $VALIDATION_PASSED "0"
-    StrCpy $VALIDATION_MESSAGE "Failed: Minimum ${MIN_DISK_SPACE_GB}GB free space required$\nAvailable on $R0: $FREE_DISK_SPACE_GB GB"
-  ${Else}
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "✓ Disk Space: $FREE_DISK_SPACE_GB GB available on $R0"
-  ${EndIf}
-  
+  ExtractRAM_Done:
   Pop $3
   Pop $2
   Pop $1
-  Pop $R1
-  Pop $R0
+  Exch $0
 FunctionEnd
 
-; Function to check administrator privileges (silent)
+; Helper function to trim whitespace from strings
+Function TrimString
+  Exch $R0
+  Push $R1
+  Push $R2
+  
+  ; Trim leading whitespace
+  TrimString_Loop1:
+    StrCpy $R1 "$R0" 1
+    ${If} $R1 == " "
+    ${OrIf} $R1 == "$\t"
+    ${OrIf} $R1 == "$\r"
+    ${OrIf} $R1 == "$\n"
+      StrCpy $R0 "$R0" "" 1
+      Goto TrimString_Loop1
+    ${EndIf}
+  
+  ; Trim trailing whitespace
+  TrimString_Loop2:
+    StrLen $R2 "$R0"
+    IntOp $R2 $R2 - 1
+    ${If} $R2 < 0
+      Goto TrimString_Done
+    ${EndIf}
+    StrCpy $R1 "$R0" 1 $R2
+    ${If} $R1 == " "
+    ${OrIf} $R1 == "$\t"
+    ${OrIf} $R1 == "$\r"
+    ${OrIf} $R1 == "$\n"
+      StrCpy $R0 "$R0" $R2
+      Goto TrimString_Loop2
+    ${EndIf}
+  
+  TrimString_Done:
+  Pop $R2
+  Pop $R1
+  Exch $R0
+FunctionEnd
+
+Function CheckDiskSpaceForPath
+  Push $0
+  ClearErrors
+  ${GetRoot} "$R0" $0
+  ${DriveSpace} "$0" "/D=F /S=G" $R1
+  ${If} ${Errors}
+    StrCpy $R1 "10"
+  ${EndIf}
+  Pop $0
+FunctionEnd
+
 Function CheckAdminPrivileges
   Push $0
-  
   ClearErrors
   ReadRegStr $0 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion" "ProgramFilesDir"
   ${If} ${Errors}
-    StrCpy $IS_ADMIN "Unknown"
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "⚠ Admin: Assumed (electron-builder requires admin)"
+    StrCpy $IS_ADMIN "No"
   ${Else}
     StrCpy $IS_ADMIN "Yes"
-    StrCpy $VALIDATION_PASSED "1"
-    DetailPrint "✓ Administrator: Privileges confirmed"
   ${EndIf}
-  
   Pop $0
 FunctionEnd
 
 ; ================================================================
-; CUSTOM PAGE: SYSTEM REQUIREMENTS VALIDATION
+; STEP 1: SIMPLE WELCOME PAGE
 ; ================================================================
 
-; Create the custom requirements validation page
-Function RequirementsPageCreate
-  !insertmacro MUI_HEADER_TEXT "System Requirements Validation" "Checking if your system meets the minimum requirements..."
-  
+Function WelcomePageCreate
+  !insertmacro MUI_HEADER_TEXT "Welcome" "Welcome to ${APP_NAME} Setup"
   nsDialogs::Create 1018
   Pop $Dialog
   ${If} $Dialog == error
     Abort
   ${EndIf}
   
-  ; Title Label
-  ${NSD_CreateLabel} 0 0 100% 16u "${APP_NAME} - Pre-Installation System Check"
-  Pop $Label_Title
-  CreateFont $R0 "Arial" 12 700
-  SendMessage $Label_Title ${WM_SETFONT} $R0 0
-  
-  ; Subtitle
-  ${NSD_CreateLabel} 0 20u 100% 12u "Verifying that your system meets the minimum requirements..."
-  Pop $Label_Subtitle
-  
-  ; Progress Bar
-  ${NSD_CreateProgressBar} 0 40u 100% 12u ""
-  Pop $ProgressBar
-  
-  ; Requirement Check Labels
-  ${NSD_CreateLabel} 10u 65u 20u 12u "[ ? ]"
-  Pop $Check_OS
-  ${NSD_CreateLabel} 35u 65u 90% 12u "Windows Version: Checking..."
-  Pop $Label_OS
-  
-  ${NSD_CreateLabel} 10u 82u 20u 12u "[ ? ]"
-  Pop $Check_Arch
-  ${NSD_CreateLabel} 35u 82u 90% 12u "System Architecture: Checking..."
-  Pop $Label_Arch
-  
-  ${NSD_CreateLabel} 10u 99u 20u 12u "[ ? ]"
-  Pop $Check_RAM
-  ${NSD_CreateLabel} 35u 99u 90% 12u "System RAM: Checking..."
-  Pop $Label_RAM
-  
-  ${NSD_CreateLabel} 10u 116u 20u 12u "[ ? ]"
-  Pop $Check_Disk
-  ${NSD_CreateLabel} 35u 116u 90% 12u "Disk Space: Checking..."
-  Pop $Label_Disk
-  
-  ${NSD_CreateLabel} 10u 133u 20u 12u "[ ? ]"
-  Pop $Check_Admin
-  ${NSD_CreateLabel} 35u 133u 90% 12u "Administrator Privileges: Checking..."
-  Pop $Label_Admin
-  
-  ; Result Label (will be updated after checks)
-  ${NSD_CreateLabel} 0 155u 100% 24u ""
-  Pop $Label_Result
-  CreateFont $R1 "Arial" 10 700
-  SendMessage $Label_Result ${WM_SETFONT} $R1 0
-  
-  ; Perform checks after showing the dialog
-  nsDialogs::Show
-FunctionEnd
-
-; Perform validation checks with visual feedback
-Function RequirementsPageLeave
-  Var /GLOBAL AllChecksPassed
-  StrCpy $AllChecksPassed "1"
-  
-  ; Update progress: 0%
-  SendMessage $ProgressBar ${PBM_SETPOS} 0 0
-  
-  ; ============ Check 1: Windows Version ============
-  Sleep 300
-  Call CheckWindowsVersion
-  ${If} $VALIDATION_PASSED == "1"
-    SendMessage $Check_OS ${WM_SETTEXT} 0 "STR:[✓]"
-    SendMessage $Label_OS ${WM_SETTEXT} 0 "STR:Windows Version: $OS_VERSION_MAJOR.$OS_VERSION_MINOR (Build $OS_BUILD) ✓"
-  ${Else}
-    SendMessage $Check_OS ${WM_SETTEXT} 0 "STR:[✗]"
-    SendMessage $Label_OS ${WM_SETTEXT} 0 "STR:Windows Version: FAILED"
-    StrCpy $AllChecksPassed "0"
-  ${EndIf}
-  SendMessage $ProgressBar ${PBM_SETPOS} 20 0
-  
-  ; ============ Check 2: Architecture ============
-  Sleep 300
-  Call CheckArchitecture
-  ${If} $VALIDATION_PASSED == "1"
-    SendMessage $Check_Arch ${WM_SETTEXT} 0 "STR:[✓]"
-    SendMessage $Label_Arch ${WM_SETTEXT} 0 "STR:System Architecture: 64-bit (x64) ✓"
-  ${Else}
-    SendMessage $Check_Arch ${WM_SETTEXT} 0 "STR:[✗]"
-    SendMessage $Label_Arch ${WM_SETTEXT} 0 "STR:System Architecture: FAILED"
-    StrCpy $AllChecksPassed "0"
-  ${EndIf}
-  SendMessage $ProgressBar ${PBM_SETPOS} 40 0
-  
-  ; ============ Check 3: RAM ============
-  Sleep 300
-  Call CheckRAM
-  ${If} $VALIDATION_PASSED == "1"
-    SendMessage $Check_RAM ${WM_SETTEXT} 0 "STR:[✓]"
-    SendMessage $Label_RAM ${WM_SETTEXT} 0 "STR:System RAM: $SYSTEM_RAM_GB GB ✓"
-  ${Else}
-    SendMessage $Check_RAM ${WM_SETTEXT} 0 "STR:[✗]"
-    SendMessage $Label_RAM ${WM_SETTEXT} 0 "STR:System RAM: FAILED ($SYSTEM_RAM_GB GB < ${MIN_RAM_GB} GB)"
-    StrCpy $AllChecksPassed "0"
-  ${EndIf}
-  SendMessage $ProgressBar ${PBM_SETPOS} 60 0
-  
-  ; ============ Check 4: Disk Space ============
-  Sleep 300
-  Call CheckDiskSpace
-  ${If} $VALIDATION_PASSED == "1"
-    SendMessage $Check_Disk ${WM_SETTEXT} 0 "STR:[✓]"
-    SendMessage $Label_Disk ${WM_SETTEXT} 0 "STR:Disk Space: $FREE_DISK_SPACE_GB GB available ✓"
-  ${Else}
-    SendMessage $Check_Disk ${WM_SETTEXT} 0 "STR:[✗]"
-    SendMessage $Label_Disk ${WM_SETTEXT} 0 "STR:Disk Space: FAILED"
-    StrCpy $AllChecksPassed "0"
-  ${EndIf}
-  SendMessage $ProgressBar ${PBM_SETPOS} 80 0
-  
-  ; ============ Check 5: Administrator ============
-  Sleep 300
-  Call CheckAdminPrivileges
-  ${If} $VALIDATION_PASSED == "1"
-    SendMessage $Check_Admin ${WM_SETTEXT} 0 "STR:[✓]"
-    SendMessage $Label_Admin ${WM_SETTEXT} 0 "STR:Administrator Privileges: Confirmed ✓"
-  ${Else}
-    SendMessage $Check_Admin ${WM_SETTEXT} 0 "STR:[⚠]"
-    SendMessage $Label_Admin ${WM_SETTEXT} 0 "STR:Administrator Privileges: Warning"
-    ; Admin check doesn't fail installation
-  ${EndIf}
-  SendMessage $ProgressBar ${PBM_SETPOS} 100 0
-  
-  ; ============ Final Result ============
-  Sleep 500
-  ${If} $AllChecksPassed == "1"
-    SendMessage $Label_Result ${WM_SETTEXT} 0 "STR:✓ All requirements met! Installation can proceed."
-    DetailPrint "========================================="
-    DetailPrint "✓ SYSTEM REQUIREMENTS CHECK: PASSED"
-    DetailPrint "========================================="
-  ${Else}
-    SendMessage $Label_Result ${WM_SETTEXT} 0 "STR:✗ System requirements not met. Installation cannot continue."
-    DetailPrint "========================================="
-    DetailPrint "✗ SYSTEM REQUIREMENTS CHECK: FAILED"
-    DetailPrint "========================================="
-    Sleep 1000
-    MessageBox MB_OK|MB_ICONSTOP "System Requirements Not Met$\n$\n$VALIDATION_MESSAGE$\n$\nInstallation cannot continue.$\n$\nPlease upgrade your system and try again." /SD IDOK
-    Quit
-  ${EndIf}
-FunctionEnd
-
-; ================================================================
-; CUSTOM WELCOME PAGE
-; ================================================================
-
-Function CustomWelcomePageCreate
-  !insertmacro MUI_HEADER_TEXT "Welcome to ${APP_NAME} Setup" "System Requirements Pre-Check"
-  
-  nsDialogs::Create 1018
-  Pop $Dialog
-  ${If} $Dialog == error
-    Abort
-  ${EndIf}
-  
-  ; Welcome Title
-  ${NSD_CreateLabel} 0 0 100% 20u "Welcome to ${APP_NAME} Installer"
+  ${NSD_CreateLabel} 0 10u 100% 24u "Welcome to ${APP_NAME} Installer"
   Pop $0
-  CreateFont $R0 "Arial" 14 700
+  CreateFont $R0 "Arial" 16 700
   SendMessage $0 ${WM_SETFONT} $R0 0
   
-  ; Welcome Message
-  ${NSD_CreateLabel} 0 30u 100% 40u "This installer will guide you through the installation of ${APP_NAME} by ${APP_PUBLISHER}.$\r$\n$\r$\nBefore proceeding, the installer will verify that your system meets the minimum requirements for this application."
+  ${NSD_CreateLabel} 0 50u 100% 60u "This wizard will guide you through the installation of ${APP_NAME} by ${APP_PUBLISHER}.$\r$\n$\r$\nThe installer will verify that your system meets the minimum requirements before installation.$\r$\n$\r$\nClick Next to continue."
   Pop $1
-  
-  ; Requirements Box
-  ${NSD_CreateGroupBox} 0 80u 100% 85u "Minimum System Requirements"
-  Pop $2
-  
-  ${NSD_CreateLabel} 10u 95u 90% 12u "• Windows 10 or later (Build ${MIN_OS_BUILD}+)"
-  Pop $3
-  ${NSD_CreateLabel} 10u 110u 90% 12u "• 64-bit (x64) processor architecture"
-  Pop $4
-  ${NSD_CreateLabel} 10u 125u 90% 12u "• ${MIN_RAM_GB} GB RAM or more"
-  Pop $5
-  ${NSD_CreateLabel} 10u 140u 90% 12u "• ${MIN_DISK_SPACE_GB} GB free disk space"
-  Pop $6
-  ${NSD_CreateLabel} 10u 155u 90% 12u "• Administrator privileges"
-  Pop $7
-  
-  ${NSD_CreateLabel} 0 175u 100% 16u "Click Next to begin the system requirements check."
-  Pop $8
   
   nsDialogs::Show
 FunctionEnd
 
-Function CustomWelcomePageLeave
-  ; Nothing special needed here
+Function WelcomePageLeave
+FunctionEnd
+
+; ================================================================
+; STEP 2: SYSTEM CONFIGURATION COMPARISON PAGE
+; ================================================================
+
+Function SystemConfigPageCreate
+  !insertmacro MUI_HEADER_TEXT "System Configuration" "Verifying system requirements"
+  
+  nsDialogs::Create 1018
+  Pop $Dialog
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+  
+  ; Only run checks once
+  ${If} $ConfigChecksRun != "1"
+    StrCpy $AllChecksPassed "1"
+    Call CheckWindowsVersion
+    Call CheckArchitecture
+    Call CheckRAM
+    Call CheckAdminPrivileges
+    StrCpy $R0 "C:\"
+    Call CheckDiskSpaceForPath
+    StrCpy $FREE_DISK_SPACE_GB $R1
+    StrCpy $ConfigChecksRun "1"
+  ${EndIf}
+  
+  ; Title
+  ${NSD_CreateLabel} 0 0 100% 16u "System Requirements Check"
+  Pop $0
+  CreateFont $R0 "Arial" 12 700
+  SendMessage $0 ${WM_SETFONT} $R0 0
+  
+  ; Subtitle
+  ${NSD_CreateLabel} 0 20u 100% 12u "Comparing your system configuration with minimum requirements"
+  Pop $0
+  
+  ; Column Headers
+  ${NSD_CreateLabel} 5u 40u 30% 14u "Requirement"
+  Pop $0
+  CreateFont $R1 "Arial" 10 700
+  SendMessage $0 ${WM_SETFONT} $R1 0
+  
+  ${NSD_CreateLabel} 35% 40u 30% 14u "Required"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $R1 0
+  
+  ${NSD_CreateLabel} 70% 40u 30% 14u "Your System"
+  Pop $0
+  SendMessage $0 ${WM_SETFONT} $R1 0
+  
+  ; OS Version
+  ${NSD_CreateLabel} 5u 60u 30% 12u "Operating System"
+  Pop $0
+  ${NSD_CreateLabel} 35% 60u 30% 12u "Windows ${MIN_OS_MAJOR} (Build ${MIN_OS_BUILD}+)"
+  Pop $0
+  ${NSD_CreateLabel} 70% 60u 30% 12u "Windows $OS_VERSION_MAJOR.$OS_VERSION_MINOR (Build $OS_BUILD)"
+  Pop $1
+  ; Check OS version and mark if failed
+  IntOp $R3 0 + $OS_BUILD
+  ${If} $OS_VERSION_MAJOR < ${MIN_OS_MAJOR}
+  ${OrIf} $R3 < ${MIN_OS_BUILD}
+    SetCtlColors $1 0xFF0000 transparent
+    ${NSD_CreateLabel} 97% 60u 3% 12u "✗"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0xFF0000 transparent
+  ${Else}
+    SetCtlColors $1 0x00AA00 transparent
+    ${NSD_CreateLabel} 97% 60u 3% 12u "✓"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0x00AA00 transparent
+  ${EndIf}
+  
+  ; Architecture
+  ${NSD_CreateLabel} 5u 76u 30% 12u "Architecture"
+  Pop $0
+  ${NSD_CreateLabel} 35% 76u 30% 12u "${REQUIRED_ARCH} (64-bit)"
+  Pop $0
+  ${NSD_CreateLabel} 70% 76u 30% 12u "$ARCHITECTURE"
+  Pop $1
+  ; Check architecture and mark if failed
+  ${If} $ARCHITECTURE != "${REQUIRED_ARCH}"
+    SetCtlColors $1 0xFF0000 transparent
+    ${NSD_CreateLabel} 97% 76u 3% 12u "✗"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0xFF0000 transparent
+  ${Else}
+    SetCtlColors $1 0x00AA00 transparent
+    ${NSD_CreateLabel} 97% 76u 3% 12u "✓"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0x00AA00 transparent
+  ${EndIf}
+  
+  ; RAM
+  ${NSD_CreateLabel} 5u 92u 30% 12u "RAM"
+  Pop $0
+  ${NSD_CreateLabel} 35% 92u 30% 12u "${MIN_RAM_GB} GB or more"
+  Pop $0
+  ${NSD_CreateLabel} 70% 92u 30% 12u "$SYSTEM_RAM_GB GB"
+  Pop $1
+  ; Check RAM and mark if failed
+  IntOp $R3 $SYSTEM_RAM_GB + 0
+  ${If} $R3 < ${MIN_RAM_GB}
+    SetCtlColors $1 0xFF0000 transparent
+    ${NSD_CreateLabel} 97% 92u 3% 12u "✗"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0xFF0000 transparent
+  ${Else}
+    SetCtlColors $1 0x00AA00 transparent
+    ${NSD_CreateLabel} 97% 92u 3% 12u "✓"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0x00AA00 transparent
+  ${EndIf}
+  
+  ; Disk Space
+  ${NSD_CreateLabel} 5u 108u 30% 12u "Free Disk Space"
+  Pop $0
+  ${NSD_CreateLabel} 35% 108u 30% 12u "${MIN_DISK_SPACE_GB} GB or more"
+  Pop $0
+  ${NSD_CreateLabel} 70% 108u 30% 12u "$FREE_DISK_SPACE_GB GB (C: drive)"
+  Pop $1
+  ; Check disk space and mark if failed
+  IntOp $R3 $FREE_DISK_SPACE_GB + 0
+  ${If} $R3 < ${MIN_DISK_SPACE_GB}
+    SetCtlColors $1 0xFF0000 transparent
+    ${NSD_CreateLabel} 97% 108u 3% 12u "✗"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0xFF0000 transparent
+  ${Else}
+    SetCtlColors $1 0x00AA00 transparent
+    ${NSD_CreateLabel} 97% 108u 3% 12u "✓"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0x00AA00 transparent
+  ${EndIf}
+  
+  ; Administrator
+  ${NSD_CreateLabel} 5u 124u 30% 12u "Administrator"
+  Pop $0
+  ${NSD_CreateLabel} 35% 124u 30% 12u "Required"
+  Pop $0
+  ${NSD_CreateLabel} 70% 124u 30% 12u "$IS_ADMIN"
+  Pop $1
+  ; Check admin privileges and mark if failed
+  ${If} $IS_ADMIN != "Yes"
+    SetCtlColors $1 0xFF0000 transparent
+    ${NSD_CreateLabel} 97% 124u 3% 12u "✗"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0xFF0000 transparent
+  ${Else}
+    SetCtlColors $1 0x00AA00 transparent
+    ${NSD_CreateLabel} 97% 124u 3% 12u "✓"
+    Pop $2
+    CreateFont $R4 "Arial" 11 700
+    SendMessage $2 ${WM_SETFONT} $R4 0
+    SetCtlColors $2 0x00AA00 transparent
+  ${EndIf}
+  
+  ; Separator line
+  ${NSD_CreateHLine} 0 145u 100% 1u ""
+  Pop $0
+  
+  ; Result message
+  ${NSD_CreateLabel} 0 155u 100% 24u ""
+  Pop $1
+  CreateFont $R2 "Arial" 10 700
+  SendMessage $1 ${WM_SETFONT} $R2 0
+  
+  ${If} $AllChecksPassed == "1"
+    SendMessage $1 ${WM_SETTEXT} 0 "STR:✓ All system requirements are met. Click Next to continue."
+  ${Else}
+    SendMessage $1 ${WM_SETTEXT} 0 "STR:✗ System requirements are NOT met. Installation cannot continue."
+    ; Disable Next button
+    GetDlgItem $0 $HWNDPARENT 1
+    EnableWindow $0 0
+  ${EndIf}
+  
+  nsDialogs::Show
+FunctionEnd
+
+Function SystemConfigPageLeave
+  ${If} $AllChecksPassed == "0"
+    MessageBox MB_OK|MB_ICONSTOP "System Requirements Not Met$\n$\nYour system does not meet the minimum requirements for ${APP_NAME}.$\n$\nPlease upgrade your system and try again."
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; ================================================================
+; STEP 3: INSTALLATION DIRECTORY WITH DISK SPACE CHECK
+; ================================================================
+
+Function CustomDirectoryPageCreate
+  !insertmacro MUI_HEADER_TEXT "Choose Install Location" "Choose the folder to install ${APP_NAME}"
+  
+  nsDialogs::Create 1018
+  Pop $Dialog
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+  
+  ${NSD_CreateLabel} 0 0 100% 16u "Installation Directory"
+  Pop $0
+  CreateFont $R0 "Arial" 12 700
+  SendMessage $0 ${WM_SETFONT} $R0 0
+  
+  ${NSD_CreateLabel} 0 20u 100% 12u "Choose the folder where ${APP_NAME} will be installed."
+  Pop $0
+  
+  ${NSD_CreateLabel} 0 40u 100% 12u "Destination folder:"
+  Pop $0
+  
+  ${NSD_CreateText} 0 55u 85% 12u "$INSTDIR"
+  Pop $1
+  
+  ${NSD_CreateBrowseButton} 87% 55u 13% 12u "Browse..."
+  Pop $2
+  
+  ; Disk space info
+  ${NSD_CreateLabel} 0 80u 100% 12u "Required free space: ${MIN_DISK_SPACE_GB} GB"
+  Pop $0
+  
+  ; Check current disk space
+  ClearErrors
+  ${GetRoot} "$INSTDIR" $R0
+  ${DriveSpace} "$R0" "/D=F /S=G" $R1
+  ${If} ${Errors}
+    StrCpy $R1 "10"
+  ${EndIf}
+  StrCpy $INSTDIR_FREE_SPACE_GB $R1
+  
+  ${NSD_CreateLabel} 0 95u 100% 12u "Available space on drive: $INSTDIR_FREE_SPACE_GB GB"
+  Pop $0
+  
+  ${If} $INSTDIR_FREE_SPACE_GB < ${MIN_DISK_SPACE_GB}
+    ${NSD_CreateLabel} 0 115u 100% 24u "⚠ Warning: Insufficient disk space on the selected drive."
+    Pop $0
+    CreateFont $R2 "Arial" 10 700
+    SendMessage $0 ${WM_SETFONT} $R2 0
+  ${Else}
+    ${NSD_CreateLabel} 0 115u 100% 24u "✓ Sufficient disk space available."
+    Pop $0
+    CreateFont $R2 "Arial" 10 700
+    SendMessage $0 ${WM_SETFONT} $R2 0
+  ${EndIf}
+  
+  nsDialogs::Show
+FunctionEnd
+
+Function CustomDirectoryPageLeave
+  ; Re-check disk space for selected directory
+  ClearErrors
+  ${GetRoot} "$INSTDIR" $R0
+  ${DriveSpace} "$R0" "/D=F /S=G" $R1
+  ${If} ${Errors}
+    StrCpy $R1 "10"
+  ${EndIf}
+  StrCpy $INSTDIR_FREE_SPACE_GB $R1
+  
+  ${If} $INSTDIR_FREE_SPACE_GB < ${MIN_DISK_SPACE_GB}
+    MessageBox MB_OK|MB_ICONSTOP "Insufficient Disk Space$\n$\nRequired: ${MIN_DISK_SPACE_GB} GB$\nAvailable on $R0: $INSTDIR_FREE_SPACE_GB GB$\n$\nPlease select a different drive or free up space."
+    Abort
+  ${EndIf}
 FunctionEnd
 
 ; ================================================================
 ; CUSTOM PAGES INSERTION
 ; ================================================================
 
-; Insert custom welcome page
 !macro customWelcomePage
-  Page custom CustomWelcomePageCreate CustomWelcomePageLeave
+  Page custom WelcomePageCreate WelcomePageLeave
+  Page custom SystemConfigPageCreate SystemConfigPageLeave
 !macroend
 
-; Insert custom requirements validation page (after welcome, before directory selection)
-!macro customInstallPage
-  Page custom RequirementsPageCreate RequirementsPageLeave
+!macro customDirectoryPage
+  Page custom CustomDirectoryPageCreate CustomDirectoryPageLeave
 !macroend
 
 ; ================================================================
 ; CUSTOM INITIALIZATION
 ; ================================================================
 
-; Hook into electron-builder's installer initialization
 !macro customInit
-  ; Initialize validation variables
-  StrCpy $VALIDATION_PASSED "0"
-  StrCpy $VALIDATION_MESSAGE ""
-  
-  ; Log startup
+  StrCpy $AllChecksPassed "1"
+  StrCpy $ConfigChecksRun "0"
+  StrCpy $OS_VERSION_MAJOR "0"
+  StrCpy $OS_VERSION_MINOR "0"
+  StrCpy $OS_BUILD "0"
+  StrCpy $SYSTEM_RAM_GB "0"
+  StrCpy $FREE_DISK_SPACE_GB "0"
+  StrCpy $ARCHITECTURE "Unknown"
+  StrCpy $IS_ADMIN "Unknown"
   DetailPrint "========================================="
   DetailPrint "${APP_NAME} Installer by ${APP_PUBLISHER}"
-  DetailPrint "Custom Installer with Requirements Check"
   DetailPrint "========================================="
 !macroend
 
@@ -512,45 +786,56 @@ FunctionEnd
 !macroend
 
 ; ================================================================
-; CUSTOM UNINSTALLER
-; ================================================================
-
-Function un.onInit
-  MessageBox MB_YESNO|MB_ICONQUESTION "Are you sure you want to uninstall ${APP_NAME}?" IDYES +2
-  Abort
-FunctionEnd
-
-Function un.onUninstSuccess
-  MessageBox MB_OK|MB_ICONINFORMATION "${APP_NAME} has been successfully removed from your computer."
-FunctionEnd
-
-; ================================================================
-; MUI2 CUSTOM SETTINGS (for modern look)
+; MUI2 CUSTOM SETTINGS
 ; ================================================================
 
 !macro customHeader
-  !define MUI_ABORTWARNING
-  !define MUI_ABORTWARNING_TEXT "Are you sure you want to quit ${APP_NAME} Setup?"
-  !define MUI_ABORTWARNING_CANCEL_DEFAULT
+  !ifndef MUI_ABORTWARNING
+    !define MUI_ABORTWARNING
+  !endif
+  !ifndef MUI_ABORTWARNING_TEXT
+    !define MUI_ABORTWARNING_TEXT "Are you sure you want to quit ${APP_NAME} Setup?"
+  !endif
+  !ifndef MUI_ABORTWARNING_CANCEL_DEFAULT
+    !define MUI_ABORTWARNING_CANCEL_DEFAULT
+  !endif
   
-  !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install-colorful.ico"
-  !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall-colorful.ico"
+  !ifndef MUI_ICON
+    !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install-colorful.ico"
+  !endif
+  !ifndef MUI_UNICON
+    !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall-colorful.ico"
+  !endif
   
-  !define MUI_HEADERIMAGE
-  !define MUI_HEADERIMAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Header\win.bmp"
-  !define MUI_HEADERIMAGE_UNBITMAP "${NSISDIR}\Contrib\Graphics\Header\win.bmp"
-  !define MUI_HEADERIMAGE_RIGHT
+  !ifndef MUI_HEADERIMAGE
+    !define MUI_HEADERIMAGE
+  !endif
+  !ifndef MUI_HEADERIMAGE_BITMAP
+    !define MUI_HEADERIMAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Header\win.bmp"
+  !endif
+  !ifndef MUI_HEADERIMAGE_UNBITMAP
+    !define MUI_HEADERIMAGE_UNBITMAP "${NSISDIR}\Contrib\Graphics\Header\win.bmp"
+  !endif
+  !ifndef MUI_HEADERIMAGE_RIGHT
+    !define MUI_HEADERIMAGE_RIGHT
+  !endif
   
-  !define MUI_WELCOMEFINISHPAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Wizard\win.bmp"
-  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Wizard\win.bmp"
+  !ifndef MUI_WELCOMEFINISHPAGE_BITMAP
+    !define MUI_WELCOMEFINISHPAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Wizard\win.bmp"
+  !endif
+  !ifndef MUI_UNWELCOMEFINISHPAGE_BITMAP
+    !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${NSISDIR}\Contrib\Graphics\Wizard\win.bmp"
+  !endif
   
-  !define MUI_COMPONENTSPAGE_SMALLDESC
-  !define MUI_FINISHPAGE_NOAUTOCLOSE
-  !define MUI_UNFINISHPAGE_NOAUTOCLOSE
+  !ifndef MUI_COMPONENTSPAGE_SMALLDESC
+    !define MUI_COMPONENTSPAGE_SMALLDESC
+  !endif
+  !ifndef MUI_FINISHPAGE_NOAUTOCLOSE
+    !define MUI_FINISHPAGE_NOAUTOCLOSE
+  !endif
+  !ifndef MUI_UNFINISHPAGE_NOAUTOCLOSE
+    !define MUI_UNFINISHPAGE_NOAUTOCLOSE
+  !endif
   
   BrandingText "${APP_PUBLISHER} - ${APP_NAME} Setup"
-  
-  ; Custom colors (optional - can be customized)
-  ; !define MUI_BGCOLOR FFFFFF
-  ; !define MUI_TEXTCOLOR 000000
 !macroend

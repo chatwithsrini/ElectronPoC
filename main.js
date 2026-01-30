@@ -28,6 +28,21 @@ const {
   getApplicationMetrics,
   analyzeMetrics,
 } = require('./src/utils/monitoring');
+const {
+  getTestServices,
+  createTestService,
+  stopTestService,
+  stopAllTestServices,
+  getTestServicesTotalSize,
+} = require('./src/utils/testServices');
+const {
+  getRunningApplications,
+  closeApplication,
+  forceCloseApplication,
+  focusApplication,
+  minimizeApplication,
+  getApplicationDetails,
+} = require('./src/utils/applicationControl');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -393,6 +408,167 @@ ipcMain.handle('monitoring:analyze', async (event, currentMetrics, previousMetri
     return {
       success: false,
       error: error.message || 'Failed to analyze metrics',
+    };
+  }
+});
+
+// IPC Handlers for Test Services
+ipcMain.handle('test-services:get-all', async () => {
+  try {
+    const appPath = app.getAppPath();
+    const services = await getTestServices(appPath);
+    return {
+      success: true,
+      services,
+    };
+  } catch (error) {
+    console.error('Error getting test services:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get test services',
+      services: [],
+    };
+  }
+});
+
+ipcMain.handle('test-services:create', async (event, serviceName, sizeMB) => {
+  try {
+    const appPath = app.getAppPath();
+    const result = await createTestService(appPath, serviceName, sizeMB);
+    return result;
+  } catch (error) {
+    console.error(`Error creating test service ${serviceName}:`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to create test service '${serviceName}'`,
+    };
+  }
+});
+
+ipcMain.handle('test-services:stop', async (event, serviceName) => {
+  try {
+    const appPath = app.getAppPath();
+    const result = await stopTestService(appPath, serviceName);
+    return result;
+  } catch (error) {
+    console.error(`Error stopping test service ${serviceName}:`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to stop test service '${serviceName}'`,
+    };
+  }
+});
+
+ipcMain.handle('test-services:stop-all', async () => {
+  try {
+    const appPath = app.getAppPath();
+    const result = await stopAllTestServices(appPath);
+    return result;
+  } catch (error) {
+    console.error('Error stopping all test services:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to stop all test services',
+    };
+  }
+});
+
+ipcMain.handle('test-services:get-total-size', async () => {
+  try {
+    const appPath = app.getAppPath();
+    const sizeInfo = await getTestServicesTotalSize(appPath);
+    return {
+      success: true,
+      ...sizeInfo,
+    };
+  } catch (error) {
+    console.error('Error getting test services total size:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get test services total size',
+    };
+  }
+});
+
+// IPC Handlers for Application Control
+ipcMain.handle('apps:get-all', async () => {
+  try {
+    const applications = await getRunningApplications();
+    return {
+      success: true,
+      applications,
+    };
+  } catch (error) {
+    console.error('Error getting running applications:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get running applications',
+      applications: [],
+    };
+  }
+});
+
+ipcMain.handle('apps:close', async (event, processId) => {
+  try {
+    const result = await closeApplication(processId);
+    return result;
+  } catch (error) {
+    console.error(`Error closing application (PID: ${processId}):`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to close application (PID: ${processId})`,
+    };
+  }
+});
+
+ipcMain.handle('apps:force-close', async (event, processId) => {
+  try {
+    const result = await forceCloseApplication(processId);
+    return result;
+  } catch (error) {
+    console.error(`Error force closing application (PID: ${processId}):`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to force close application (PID: ${processId})`,
+    };
+  }
+});
+
+ipcMain.handle('apps:focus', async (event, processId) => {
+  try {
+    const result = await focusApplication(processId);
+    return result;
+  } catch (error) {
+    console.error(`Error focusing application (PID: ${processId}):`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to focus application (PID: ${processId})`,
+    };
+  }
+});
+
+ipcMain.handle('apps:minimize', async (event, processId) => {
+  try {
+    const result = await minimizeApplication(processId);
+    return result;
+  } catch (error) {
+    console.error(`Error minimizing application (PID: ${processId}):`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to minimize application (PID: ${processId})`,
+    };
+  }
+});
+
+ipcMain.handle('apps:get-details', async (event, processId) => {
+  try {
+    const result = await getApplicationDetails(processId);
+    return result;
+  } catch (error) {
+    console.error(`Error getting application details (PID: ${processId}):`, error);
+    return {
+      success: false,
+      error: error.message || `Failed to get application details (PID: ${processId})`,
     };
   }
 });

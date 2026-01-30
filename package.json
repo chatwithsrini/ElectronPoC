@@ -4,16 +4,24 @@
   "description": "A simple Electron Hello World application",
   "main": "main.js",
   "scripts": {
-    "build:styles": "./node_modules/.bin/sass src/styles.scss styles.css --no-source-map",
+    "build:styles": "npx sass src/styles.scss styles.css --no-source-map",
     "build": "npm run build:styles && vite build",
+    "clean:electron": "taskkill /F /IM electron.exe /T 2>nul & timeout /t 5 /nobreak >nul || exit 0",
+    "clean:release": "powershell -Command \"if (Test-Path release) { Start-Sleep -Seconds 2; Remove-Item -Path release -Recurse -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1 }\"",
+    "clean": "npm run clean:electron && npm run clean:release",
+    "clean:dist": "if exist dist rmdir /s /q dist",
+    "clean:all": "npm run clean && npm run clean:dist",
+    "prebuild": "npm run clean:electron",
     "start": "npm run build && electron .",
     "dev": "vite",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "predist": "npm run clean:electron",
     "dist": "npm run build && electron-builder",
+    "predist:win": "npm run clean:electron",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:win:x64": "npm run build && electron-builder --win --x64",
-    "pack": "npm run build && electron-builder --dir"
+    "dist:win:x64": "npm run clean:electron && npm run build && electron-builder --win --x64",
+    "pack": "npm run clean:electron && npm run build && electron-builder --dir"
   },
   "keywords": [
     "electron",
