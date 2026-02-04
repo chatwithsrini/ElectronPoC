@@ -47,5 +47,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   focusApplication: (processId) => ipcRenderer.invoke('apps:focus', processId),
   minimizeApplication: (processId) => ipcRenderer.invoke('apps:minimize', processId),
   getApplicationDetails: (processId) => ipcRenderer.invoke('apps:get-details', processId),
+  
+  // Database Connections Management
+  getAllDatabaseConnections: () => ipcRenderer.invoke('db-connections:get-all'),
+  addDatabaseConnection: (connectionData) => ipcRenderer.invoke('db-connections:add', connectionData),
+  removeDatabaseConnection: (connectionId) => ipcRenderer.invoke('db-connections:remove', connectionId),
+  updateDatabaseConnection: (connectionId, updates) => ipcRenderer.invoke('db-connections:update', connectionId, updates),
+  testDatabaseConnection: (connectionId) => ipcRenderer.invoke('db-connections:test', connectionId),
+  testAllDatabaseConnections: () => ipcRenderer.invoke('db-connections:test-all'),
+  getDatabaseConnectionStatuses: () => ipcRenderer.invoke('db-connections:get-statuses'),
+  getSupportedDatabaseTypes: () => ipcRenderer.invoke('db-connections:get-supported-types'),
+  discoverAllDatabases: () => ipcRenderer.invoke('db-connections:discover-all'),
+  fetchDatabaseCredentials: (dbType, instanceName) => ipcRenderer.invoke('db-connections:fetch-credentials', dbType, instanceName),
 });
 

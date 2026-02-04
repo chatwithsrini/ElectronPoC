@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import '../styles.css';
 import Login from './components/Login';
-import Dashboard from './components/Dashboard';
+import Dashboard from './components/Dashboard/Dashboard';
 
 function App() {
   const [user, setUser] = useState(null);

@@ -43,6 +43,18 @@ const {
   minimizeApplication,
   getApplicationDetails,
 } = require('./src/utils/applicationControl');
+const {
+  addConnection,
+  removeConnection,
+  updateConnection,
+  getAllConnections,
+  testConnection,
+  testAllConnections,
+  getAllConnectionStatuses,
+  getSupportedDatabaseTypes,
+  discoverAllDatabases,
+  fetchCredentialsFromRegistry,
+} = require('./src/utils/databaseConnections');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -569,6 +581,139 @@ ipcMain.handle('apps:get-details', async (event, processId) => {
     return {
       success: false,
       error: error.message || `Failed to get application details (PID: ${processId})`,
+    };
+  }
+});
+
+// IPC Handlers for Database Connections Management
+ipcMain.handle('db-connections:get-all', async () => {
+  try {
+    const result = await getAllConnections();
+    return result;
+  } catch (error) {
+    console.error('Error getting database connections:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get database connections',
+      connections: [],
+    };
+  }
+});
+
+ipcMain.handle('db-connections:add', async (event, connectionData) => {
+  try {
+    const result = await addConnection(connectionData);
+    return result;
+  } catch (error) {
+    console.error('Error adding database connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add database connection',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:remove', async (event, connectionId) => {
+  try {
+    const result = await removeConnection(connectionId);
+    return result;
+  } catch (error) {
+    console.error('Error removing database connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to remove database connection',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:update', async (event, connectionId, updates) => {
+  try {
+    const result = await updateConnection(connectionId, updates);
+    return result;
+  } catch (error) {
+    console.error('Error updating database connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to update database connection',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:test', async (event, connectionId) => {
+  try {
+    const result = await testConnection(connectionId);
+    return result;
+  } catch (error) {
+    console.error('Error testing database connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to test database connection',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:test-all', async () => {
+  try {
+    const result = await testAllConnections();
+    return result;
+  } catch (error) {
+    console.error('Error testing all database connections:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to test all database connections',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:get-statuses', async () => {
+  try {
+    const result = await getAllConnectionStatuses();
+    return result;
+  } catch (error) {
+    console.error('Error getting connection statuses:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get connection statuses',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:get-supported-types', async () => {
+  try {
+    const result = getSupportedDatabaseTypes();
+    return result;
+  } catch (error) {
+    console.error('Error getting supported database types:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to get supported database types',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:discover-all', async () => {
+  try {
+    const result = await discoverAllDatabases();
+    return result;
+  } catch (error) {
+    console.error('Error discovering databases:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to discover databases',
+      instances: [],
+    };
+  }
+});
+
+ipcMain.handle('db-connections:fetch-credentials', async (event, dbType, instanceName) => {
+  try {
+    const result = await fetchCredentialsFromRegistry(dbType, instanceName);
+    return result;
+  } catch (error) {
+    console.error('Error fetching credentials from registry:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch credentials',
     };
   }
 });

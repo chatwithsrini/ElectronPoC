@@ -2010,3 +2010,177 @@ body {
     font-size: 0.7rem;
   }
 }
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: #334155;
+  border-radius: 0.75rem;
+  border: 1px solid #475569;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #475569;
+}
+.modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+.modal-close:hover {
+  color: #f1f5f9;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid #475569;
+}
+
+.modal-btn {
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid #475569;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+}
+.modal-btn--primary {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+.modal-btn--primary:hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+.modal-btn--secondary {
+  background: rgba(0, 0, 0, 0.2);
+  color: #f1f5f9;
+}
+.modal-btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+.form-group label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #f1f5f9;
+  margin-bottom: 0.5rem;
+}
+.form-group input[type=text],
+.form-group input[type=password],
+.form-group input[type=number],
+.form-group select {
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  border: 1px solid #475569;
+  background: rgba(0, 0, 0, 0.2);
+  color: #f1f5f9;
+  font-size: 0.875rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.form-group input[type=text]:focus,
+.form-group input[type=password]:focus,
+.form-group input[type=number]:focus,
+.form-group select:focus {
+  border-color: #2563eb;
+  background: rgba(0, 0, 0, 0.3);
+}
+.form-group input[type=text]::placeholder,
+.form-group input[type=password]::placeholder,
+.form-group input[type=number]::placeholder,
+.form-group select::placeholder {
+  color: #94a3b8;
+  opacity: 0.6;
+}
+.form-group input[type=checkbox] {
+  cursor: pointer;
+}
+
+.mode-selector-btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #475569;
+  background: rgba(0, 0, 0, 0.2);
+  color: #94a3b8;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.mode-selector-btn:hover {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+.mode-selector-btn--active {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+.mode-selector-btn--active:hover {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+.mode-selector-btn i {
+  font-size: 1rem;
+}
