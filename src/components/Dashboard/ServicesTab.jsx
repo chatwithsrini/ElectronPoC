@@ -6,19 +6,11 @@ function ServicesTab({
   servicesLoading,
   servicesError,
   actionLoading,
-  testServices,
-  testServicesLoading,
-  testServicesError,
-  testServicesActionLoading,
-  testServicesTotalSize,
   onRefreshServices,
   onServiceAction,
-  onRefreshTestServices,
-  onCreateTestServices,
-  onStopTestService,
-  onStopAllTestServices,
 }) {
   const [serviceFilter, setServiceFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const isServiceRunning = (service) => {
     const statusNum = typeof service.status === 'number' ? service.status : parseInt(service.status, 10);
@@ -46,11 +38,9 @@ function ServicesTab({
   const { runningCount, stoppedCount, pausedCount } = getFilterCounts();
 
   const getFilteredServices = () => {
-    if (serviceFilter === 'all') {
-      return services;
-    }
-    
-    return services.filter((service) => {
+    const term = searchTerm.trim().toLowerCase();
+
+    const statusFiltered = services.filter((service) => {
       switch (serviceFilter) {
         case 'running':
           return isServiceRunning(service);
@@ -58,9 +48,20 @@ function ServicesTab({
           return isServiceStopped(service);
         case 'paused':
           return isServicePaused(service);
+        case 'all':
         default:
           return true;
       }
+    });
+
+    if (!term) {
+      return statusFiltered;
+    }
+
+    return statusFiltered.filter((service) => {
+      const name = (service.name || '').toLowerCase();
+      const displayName = (service.displayName || '').toLowerCase();
+      return name.includes(term) || displayName.includes(term);
     });
   };
 
@@ -71,14 +72,29 @@ function ServicesTab({
       <div className="services-section">
         <div className="services-section__header">
           <h2 className="services-section__title">Windows Services</h2>
-          <button
-            className="services-section__refresh"
-            onClick={onRefreshServices}
-            disabled={servicesLoading}
-            title="Refresh services"
-          >
-            <i className={`fa-solid fa-rotate ${servicesLoading ? 'fa-spin' : ''}`} aria-hidden="true"></i>
-          </button>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <div className="services-section__search">
+              <i
+                className="fa-solid fa-magnifying-glass services-section__search-icon"
+                aria-hidden="true"
+              ></i>
+              <input
+                type="text"
+                className="services-section__search-input"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search services by name..."
+              />
+            </div>
+            <button
+              className="services-section__refresh"
+              onClick={onRefreshServices}
+              disabled={servicesLoading}
+              title="Refresh services"
+            >
+              <i className={`fa-solid fa-rotate ${servicesLoading ? 'fa-spin' : ''}`} aria-hidden="true"></i>
+            </button>
+          </div>
         </div>
 
         {/* Filter Buttons */}
@@ -210,145 +226,6 @@ function ServicesTab({
                           )}
                         </>
                       )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Test Services Section */}
-      <div className="services-section" style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '2px solid #e5e7eb' }}>
-        <div className="services-section__header">
-          <h2 className="services-section__title">Test Services</h2>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {testServicesTotalSize && (
-              <span style={{ 
-                fontSize: '0.875rem', 
-                color: '#6b7280',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem'
-              }}>
-                <i className="fa-solid fa-hard-drive" aria-hidden="true"></i>
-                Total: {testServicesTotalSize.totalMB} MB ({testServicesTotalSize.count} services)
-              </span>
-            )}
-            <button
-              className="services-section__refresh"
-              onClick={onRefreshTestServices}
-              disabled={testServicesLoading}
-              title="Refresh test services"
-            >
-              <i className={`fa-solid fa-rotate ${testServicesLoading ? 'fa-spin' : ''}`} aria-hidden="true"></i>
-            </button>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            className="service-item__action service-item__action--start"
-            onClick={onCreateTestServices}
-            disabled={testServicesActionLoading['create-all'] || testServices.length >= 5}
-            title="Create 5 test services (10MB each)"
-            style={{ 
-              padding: '0.5rem 1rem',
-              fontSize: '0.875rem',
-              opacity: testServices.length >= 5 ? 0.5 : 1
-            }}
-          >
-            {testServicesActionLoading['create-all'] ? (
-              <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            ) : (
-              <i className="fa-solid fa-plus" aria-hidden="true"></i>
-            )}
-            Create 5 Test Services
-          </button>
-          {testServices.length > 0 && (
-            <button
-              className="service-item__action service-item__action--stop"
-              onClick={onStopAllTestServices}
-              disabled={testServicesActionLoading['stop-all']}
-              title="Stop all test services"
-              style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
-            >
-              {testServicesActionLoading['stop-all'] ? (
-                <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-              ) : (
-                <i className="fa-solid fa-stop" aria-hidden="true"></i>
-              )}
-              Stop All Test Services
-            </button>
-          )}
-        </div>
-
-        {testServicesError && (
-          <div className="services-section__error">
-            <span>{testServicesError}</span>
-          </div>
-        )}
-
-        {testServicesLoading && testServices.length === 0 ? (
-          <div className="services-section__loading">
-            <span>Loading test services...</span>
-          </div>
-        ) : (
-          <div className="services-list">
-            {testServices.length === 0 ? (
-              <div className="services-list__empty">
-                <span>No test services created. Click "Create 5 Test Services" to create test services that will increase application size.</span>
-              </div>
-            ) : (
-              testServices.map((service) => {
-                const actionKey = service.name;
-
-                return (
-                  <div key={service.name} className="service-item">
-                    <div className="service-item__info">
-                      <div className="service-item__header">
-                        <span className="service-item__name">{service.displayName || service.name}</span>
-                        <span
-                          className="service-item__status"
-                          style={{ color: '#22c55e' }}
-                        >
-                          <span
-                            className="service-item__status-dot"
-                            style={{ backgroundColor: '#22c55e' }}
-                          ></span>
-                          Running
-                        </span>
-                      </div>
-                      <div className="service-item__details">
-                        <span className="service-item__detail-label">Name:</span>
-                        <span className="service-item__detail-value">{service.name}</span>
-                      </div>
-                      <div className="service-item__details">
-                        <span className="service-item__detail-label">Size:</span>
-                        <span className="service-item__detail-value">{service.sizeMB} MB</span>
-                      </div>
-                      <div className="service-item__details">
-                        <span className="service-item__detail-label">Created:</span>
-                        <span className="service-item__detail-value">
-                          {new Date(service.createdAt).toLocaleString()}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="service-item__actions">
-                      <button
-                        className="service-item__action service-item__action--stop"
-                        onClick={() => onStopTestService(service.name)}
-                        disabled={testServicesActionLoading[actionKey]}
-                        title="Stop and remove test service"
-                      >
-                        {testServicesActionLoading[actionKey] ? (
-                          <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                        ) : (
-                          <i className="fa-solid fa-stop" aria-hidden="true"></i>
-                        )}
-                        Stop
-                      </button>
                     </div>
                   </div>
                 );

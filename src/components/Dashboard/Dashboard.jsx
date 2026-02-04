@@ -9,7 +9,6 @@ import ProfileTab from './ProfileTab';
 import { useDatabaseConnections } from '../../hooks/useDatabaseConnections';
 import { useServices } from '../../hooks/useServices';
 import { useApplications } from '../../hooks/useApplications';
-import { useTestServices } from '../../hooks/useTestServices';
 
 function Dashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -48,18 +47,6 @@ function Dashboard({ user, onLogout }) {
     handleApplicationAction,
   } = useApplications();
 
-  const {
-    testServices,
-    testServicesLoading,
-    testServicesError,
-    testServicesActionLoading,
-    testServicesTotalSize,
-    loadTestServices,
-    handleCreateTestServices,
-    handleStopTestService,
-    handleStopAllTestServices,
-  } = useTestServices();
-
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'fa-house' },
     { id: 'database', label: 'Database', icon: 'fa-database' },
@@ -74,7 +61,6 @@ function Dashboard({ user, onLogout }) {
     loadDatabaseConnections();
     loadSupportedDbTypes();
     loadServices();
-    loadTestServices();
     loadApplications();
     
     // Check connection every 30 seconds
@@ -85,7 +71,6 @@ function Dashboard({ user, onLogout }) {
     // Refresh services every 10 seconds
     const servicesInterval = setInterval(() => {
       loadServices();
-      loadTestServices();
     }, 10000);
 
     // Refresh applications every 5 seconds
@@ -175,17 +160,8 @@ function Dashboard({ user, onLogout }) {
             servicesLoading={servicesLoading}
             servicesError={servicesError}
             actionLoading={actionLoading}
-            testServices={testServices}
-            testServicesLoading={testServicesLoading}
-            testServicesError={testServicesError}
-            testServicesActionLoading={testServicesActionLoading}
-            testServicesTotalSize={testServicesTotalSize}
             onRefreshServices={loadServices}
             onServiceAction={handleServiceAction}
-            onRefreshTestServices={loadTestServices}
-            onCreateTestServices={handleCreateTestServices}
-            onStopTestService={handleStopTestService}
-            onStopAllTestServices={handleStopAllTestServices}
           />
         );
 
