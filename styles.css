@@ -2127,11 +2127,21 @@ body {
   padding: 0.625rem 0.875rem;
   border-radius: 0.5rem;
   border: 1px solid #475569;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(15, 23, 42, 0.5);
   color: #f1f5f9;
   font-size: 0.875rem;
   outline: none;
   transition: all 0.2s ease;
+}
+.form-group select {
+  cursor: pointer;
+}
+.form-group select option {
+  background: #334155;
+  color: #f1f5f9;
+}
+.form-group select option:disabled {
+  color: #94a3b8;
 }
 .form-group input[type=text]:focus,
 .form-group input[type=password]:focus,
