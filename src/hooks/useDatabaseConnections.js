@@ -154,6 +154,71 @@ export const useDatabaseConnections = () => {
     }
   }, [loadDatabaseConnections]);
 
+  // Eaglesoft-specific functions
+  const checkEaglesoftInstalled = useCallback(async () => {
+    try {
+      if (!window.electronAPI || !window.electronAPI.isEaglesoftInstalled) {
+        return { installed: false, error: 'Eaglesoft API not available' };
+      }
+
+      const result = await window.electronAPI.isEaglesoftInstalled();
+      return result;
+    } catch (error) {
+      console.error('Error checking Eaglesoft installation:', error);
+      return { installed: false, error: error.message || 'Unknown error' };
+    }
+  }, []);
+
+  const handleAddEaglesoftConnection = useCallback(async (connectionName = 'Eaglesoft Database', usePrimaryDatabase = true) => {
+    try {
+      if (!window.electronAPI || !window.electronAPI.addEaglesoftConnection) {
+        alert('Eaglesoft API not available');
+        return false;
+      }
+
+      setDbConnectionsLoading(true);
+      setDbConnectionsError(null);
+
+      const result = await window.electronAPI.addEaglesoftConnection(connectionName, usePrimaryDatabase);
+
+      if (result.success) {
+        await loadDatabaseConnections();
+        return { success: true, connection: result.connection };
+      } else {
+        const errorMsg = result.error || 'Failed to add Eaglesoft connection';
+        setDbConnectionsError(errorMsg);
+        
+        // Return error with hints for UI to display
+        return {
+          success: false,
+          error: errorMsg,
+          hint: result.hint || []
+        };
+      }
+    } catch (error) {
+      console.error('Error adding Eaglesoft connection:', error);
+      const errorMsg = error.message || 'Failed to add Eaglesoft connection';
+      setDbConnectionsError(errorMsg);
+      return { success: false, error: errorMsg };
+    } finally {
+      setDbConnectionsLoading(false);
+    }
+  }, [loadDatabaseConnections]);
+
+  const fetchEaglesoftCredentials = useCallback(async (usePrimaryDatabase = true) => {
+    try {
+      if (!window.electronAPI || !window.electronAPI.fetchEaglesoftCredentials) {
+        return { success: false, error: 'Eaglesoft API not available' };
+      }
+
+      const result = await window.electronAPI.fetchEaglesoftCredentials(usePrimaryDatabase);
+      return result;
+    } catch (error) {
+      console.error('Error fetching Eaglesoft credentials:', error);
+      return { success: false, error: error.message || 'Unknown error' };
+    }
+  }, []);
+
   return {
     dbConnections,
     dbConnectionsLoading,
@@ -165,5 +230,9 @@ export const useDatabaseConnections = () => {
     handleTestAllConnections,
     handleRemoveConnection,
     handleAddConnection,
+    // Eaglesoft-specific functions
+    checkEaglesoftInstalled,
+    handleAddEaglesoftConnection,
+    fetchEaglesoftCredentials,
   };
 };

@@ -21,6 +21,8 @@ files:
   - "!node_modules/**/*.map"
   - "!node_modules/**/.{bin,git,nyc_output,coverage}"
   - "!node_modules/**/.{eslint,mocha,prettier,jest,ava,tslint,tsd,eslintcache,stylelintcache}"
+  # Exclude odbc from the 64-bit build (Eaglesoft uses external 32-bit Node.js bridge)
+  - "!node_modules/odbc/**/*"
 
 win:
   target:

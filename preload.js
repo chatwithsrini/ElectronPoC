@@ -59,5 +59,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSupportedDatabaseTypes: () => ipcRenderer.invoke('db-connections:get-supported-types'),
   discoverAllDatabases: () => ipcRenderer.invoke('db-connections:discover-all'),
   fetchDatabaseCredentials: (dbType, instanceName) => ipcRenderer.invoke('db-connections:fetch-credentials', dbType, instanceName),
+  
+  // Eaglesoft-specific Database Operations
+  isEaglesoftInstalled: () => ipcRenderer.invoke('db-connections:eaglesoft:check-installed'),
+  fetchEaglesoftCredentials: (usePrimaryDatabase = true) => ipcRenderer.invoke('db-connections:eaglesoft:fetch-credentials', usePrimaryDatabase),
+  addEaglesoftConnection: (connectionName, usePrimaryDatabase = true) => ipcRenderer.invoke('db-connections:eaglesoft:add-connection', connectionName, usePrimaryDatabase),
 });
 

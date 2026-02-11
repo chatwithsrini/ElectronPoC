@@ -54,6 +54,9 @@ const {
   getSupportedDatabaseTypes,
   discoverAllDatabases,
   fetchCredentialsFromRegistry,
+  isEaglesoftInstalled,
+  fetchEaglesoftCredentials,
+  addEaglesoftConnection,
 } = require('./src/utils/databaseConnections');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -714,6 +717,46 @@ ipcMain.handle('db-connections:fetch-credentials', async (event, dbType, instanc
     return {
       success: false,
       error: error.message || 'Failed to fetch credentials',
+    };
+  }
+});
+
+// IPC Handlers for Eaglesoft-specific operations
+ipcMain.handle('db-connections:eaglesoft:check-installed', async () => {
+  try {
+    const result = await isEaglesoftInstalled();
+    return result;
+  } catch (error) {
+    console.error('Error checking Eaglesoft installation:', error);
+    return {
+      installed: false,
+      error: error.message || 'Failed to check Eaglesoft installation',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:eaglesoft:fetch-credentials', async (event, usePrimaryDatabase = true) => {
+  try {
+    const result = await fetchEaglesoftCredentials(usePrimaryDatabase);
+    return result;
+  } catch (error) {
+    console.error('Error fetching Eaglesoft credentials:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch Eaglesoft credentials',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:eaglesoft:add-connection', async (event, connectionName = 'Eaglesoft Database', usePrimaryDatabase = true) => {
+  try {
+    const result = await addEaglesoftConnection(connectionName, usePrimaryDatabase);
+    return result;
+  } catch (error) {
+    console.error('Error adding Eaglesoft connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add Eaglesoft connection',
     };
   }
 });

@@ -4,6 +4,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const Registry = require('winreg');
+const eaglesoftCredentials = require('./eaglesoftCredentials');
 
 const execPromise = promisify(exec);
 
@@ -744,6 +745,149 @@ async function getAllConnections() {
 }
 
 /**
+ * Test a generic ODBC connection using a connection string.
+ * Primarily used for Eaglesoft DSN-style connections.
+ * 
+ * For Eaglesoft (which uses 32-bit ODBC), this will automatically use
+ * the 32-bit Node.js bridge to avoid architecture mismatch errors.
+ */
+async function testOdbcConnection(config) {
+  // Check if this is an Eaglesoft connection (has useOdbc flag)
+  // If so, use the 32-bit bridge
+  if (config.useOdbc) {
+    const { testOdbcConnection32Bit } = require('./eaglesoftOdbcBridge');
+    return await testOdbcConnection32Bit(config);
+  }
+
+  // Otherwise, try direct ODBC connection (for 64-bit ODBC drivers)
+  let odbc;
+  try {
+    // Require at runtime so the app can still run without ODBC installed
+    // and show a helpful message instead of crashing.
+    // Users can install with: npm install odbc
+    // (or have it bundled in the Electron app's dependencies).
+    // eslint-disable-next-line global-require
+    odbc = require('odbc');
+  } catch (err) {
+    return {
+      success: false,
+      error: 'ODBC driver not installed. Please install the "odbc" npm package to test ODBC DSN connections.',
+      code: 'ODBC_DRIVER_MISSING',
+    };
+  }
+
+  const connectionString =
+    config.odbcConnectionString ||
+    [
+      config.DBN ? `DBN=${config.DBN}` : null,
+      config.DSN ? `DSN=${config.DSN}` : null,
+      config.username ? `UID=${config.username}` : null,
+      config.password ? `PWD=${config.password}` : null,
+    ]
+      .filter(Boolean)
+      .join(';');
+
+  if (!connectionString) {
+    return {
+      success: false,
+      error: 'Missing ODBC connection string information for Eaglesoft connection.',
+    };
+  }
+
+  // Mask password for logging
+  const safeConnectionString = connectionString.replace(/PWD=[^;]*/gi, 'PWD=***');
+  console.log('[ODBC] Attempting connection with:', safeConnectionString);
+  console.log('[ODBC] DSN:', config.DSN || config.server || 'N/A');
+  console.log('[ODBC] DBN:', config.DBN || config.database || 'N/A');
+  console.log('[ODBC] UID:', config.username || 'N/A');
+
+  let connection;
+  try {
+    connection = await odbc.connect(connectionString);
+    console.log('[ODBC] Connection established successfully');
+    // Run a very simple query that should work across SQL Server ODBC drivers
+    const result = await connection.query('SELECT 1 AS TestValue');
+    console.log('[ODBC] Test query executed successfully');
+
+    return {
+      success: true,
+      message: 'ODBC connection successful',
+      serverInfo: {
+        // We don’t have rich server metadata here; this is mainly a connectivity check.
+        version: 'ODBC connection',
+        currentUser: config.username || 'N/A',
+        currentDatabase: config.DBN || config.database || 'N/A',
+        serverName: config.DSN || config.server || 'N/A',
+      },
+      rawResult: result,
+    };
+  } catch (error) {
+    console.error('[ODBC] Connection failed:', error);
+    console.error('[ODBC] Error details:', {
+      message: error.message,
+      code: error.code,
+      odbcErrors: error.odbcErrors,
+      state: error.state,
+    });
+
+    // Build a more helpful error message
+    let errorMessage = error.message || 'ODBC connection failed';
+    const hints = [];
+
+    // Check for common ODBC error patterns
+    if (error.odbcErrors && error.odbcErrors.length > 0) {
+      const odbcError = error.odbcErrors[0];
+      errorMessage = odbcError.message || errorMessage;
+      
+      // IM002 - Data source name not found
+      if (odbcError.state === 'IM002' || errorMessage.includes('Data source name not found')) {
+        hints.push(`DSN "${config.DSN || config.server}" is not configured in Windows ODBC Data Sources.`);
+        hints.push('Open "ODBC Data Sources (32-bit)" from Windows Start menu.');
+        hints.push(`Add a System DSN named "${config.DSN || config.server}" pointing to your Eaglesoft database.`);
+        hints.push('If Eaglesoft uses ProvideX, ensure the ProvideX ODBC driver is installed.');
+      }
+      
+      // 28000 - Invalid authorization / login failed
+      if (odbcError.state === '28000' || errorMessage.includes('login failed')) {
+        hints.push('Invalid username or password for the DSN.');
+        hints.push(`Verify credentials: UID=${config.username || 'N/A'}`);
+        hints.push('Check the DSN configuration in ODBC Data Source Administrator.');
+      }
+      
+      // 08001 - Unable to connect
+      if (odbcError.state === '08001' || errorMessage.includes('unable to connect')) {
+        hints.push('Cannot establish connection to the database server.');
+        hints.push('Ensure the database server/service is running.');
+        hints.push('Verify network connectivity if using a remote server.');
+      }
+    }
+
+    if (hints.length === 0) {
+      hints.push(`The DSN "${config.DSN || config.server}" must be configured in Windows ODBC Data Source Administrator (32-bit).`);
+      hints.push('Eaglesoft typically uses ProvideX ODBC driver. Ensure it is installed and the DSN is configured.');
+      hints.push('Try opening Eaglesoft application to verify database connectivity works there first.');
+      hints.push(`Connection string used: ${safeConnectionString}`);
+    }
+
+    return {
+      success: false,
+      error: errorMessage,
+      code: error.code,
+      state: error.state,
+      hint: hints,
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch (err) {
+        console.error('Error closing ODBC connection:', err);
+      }
+    }
+  }
+}
+
+/**
  * Test MSSQL connection
  */
 async function testMssqlConnection(config) {
@@ -1035,10 +1179,17 @@ async function testConnection(connectionId) {
     }
 
     let result;
-    switch (connection.type) {
-      case DB_TYPES.MSSQL:
-        result = await testMssqlConnection(connection.config);
-        break;
+
+    // Special handling: Eaglesoft connections use an ODBC DSN-style connection string.
+    // When useOdbc + odbcConnectionString are present, prefer testing via ODBC
+    // instead of trying to treat the DSN as a TCP hostname (which causes ENOTFOUND).
+    if (connection.config && connection.config.useOdbc && connection.config.odbcConnectionString) {
+      result = await testOdbcConnection(connection.config);
+    } else {
+      switch (connection.type) {
+        case DB_TYPES.MSSQL:
+          result = await testMssqlConnection(connection.config);
+          break;
       case DB_TYPES.MYSQL:
         result = await testMysqlConnection(connection.config);
         break;
@@ -1048,11 +1199,12 @@ async function testConnection(connectionId) {
       case DB_TYPES.MONGODB:
         result = await testMongodbConnection(connection.config);
         break;
-      default:
-        result = {
-          success: false,
-          error: `Database type '${connection.type}' is not supported yet`,
-        };
+        default:
+          result = {
+            success: false,
+            error: `Database type '${connection.type}' is not supported yet`,
+          };
+      }
     }
 
     // Update last tested timestamp
@@ -1207,6 +1359,93 @@ function isPackageInstalled(packageName) {
   }
 }
 
+/**
+ * Check if Eaglesoft is installed on the system
+ */
+async function isEaglesoftInstalled() {
+  try {
+    return await eaglesoftCredentials.isEaglesoftInstalled();
+  } catch (error) {
+    console.error('Error checking Eaglesoft installation:', error);
+    return {
+      installed: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Fetch connection credentials from locally installed Eaglesoft database
+ * 
+ * @param {boolean} usePrimaryDatabase - true for primary database, false for secondary
+ * @returns {Promise<Object>} Result with connection configuration
+ */
+async function fetchEaglesoftCredentials(usePrimaryDatabase = true) {
+  try {
+    console.log('Fetching Eaglesoft credentials from local installation...');
+    return await eaglesoftCredentials.getEaglesoftConnectionConfig(usePrimaryDatabase);
+  } catch (error) {
+    console.error('Error fetching Eaglesoft credentials:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch Eaglesoft credentials',
+    };
+  }
+}
+
+/**
+ * Add an Eaglesoft connection by automatically fetching credentials from local installation
+ * 
+ * @param {string} connectionName - Optional name for the connection
+ * @param {boolean} usePrimaryDatabase - true for primary database, false for secondary
+ * @returns {Promise<Object>} Result with the added connection
+ */
+async function addEaglesoftConnection(connectionName = 'Eaglesoft Database', usePrimaryDatabase = true) {
+  try {
+    console.log('Creating Eaglesoft connection from local installation...');
+    
+    // First check if Eaglesoft is installed
+    const installCheck = await isEaglesoftInstalled();
+    if (!installCheck.installed) {
+      return {
+        success: false,
+        error: 'Eaglesoft is not installed on this system',
+        hint: [
+          'Install Eaglesoft software on this machine',
+          'Ensure the Eaglesoft COM object (EaglesoftSettings.EaglesoftSettings) is registered',
+        ],
+      };
+    }
+    
+    // Create the connection data from Eaglesoft
+    const result = await eaglesoftCredentials.createEaglesoftConnection(connectionName, usePrimaryDatabase);
+    
+    if (!result.success) {
+      return result;
+    }
+    
+    // Add the connection to our saved connections
+    const addResult = await addConnection(result.connectionData);
+    
+    if (addResult.success) {
+      return {
+        ...addResult,
+        source: result.source,
+        databaseType: result.databaseType,
+        message: 'Eaglesoft connection added successfully',
+      };
+    }
+    
+    return addResult;
+  } catch (error) {
+    console.error('Error adding Eaglesoft connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add Eaglesoft connection',
+    };
+  }
+}
+
 module.exports = {
   DB_TYPES,
   addConnection,
@@ -1227,4 +1466,7 @@ module.exports = {
   discoverRegistryPaths,
   readRegistryConfig,
   fetchCredentialsFromRegistry,
+  isEaglesoftInstalled,
+  fetchEaglesoftCredentials,
+  addEaglesoftConnection,
 };

@@ -8,6 +8,10 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
   const [fetchingCredentials, setFetchingCredentials] = useState(false);
   const [credentialsAutoFilled, setCredentialsAutoFilled] = useState(false);
   const [credentialsSource, setCredentialsSource] = useState('');
+  const [eaglesoftError, setEaglesoftError] = useState(null);
+  const [eaglesoftOdbcString, setEaglesoftOdbcString] = useState(null);
+  const [eaglesoftDSN, setEaglesoftDSN] = useState(null);
+  const [eaglesoftDBN, setEaglesoftDBN] = useState(null);
   
   const [connectionName, setConnectionName] = useState('');
   const [dbType, setDbType] = useState('mssql');
@@ -49,6 +53,7 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
 
   const handleInstanceSelect = async (instanceId) => {
     setSelectedInstance(instanceId);
+    setEaglesoftError(null);
     
     if (!instanceId) {
       setConnectionName('');
@@ -62,6 +67,74 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
       setWindowsAuth(false);
       setCredentialsAutoFilled(false);
       setCredentialsSource('');
+      setEaglesoftOdbcString(null);
+      setEaglesoftDSN(null);
+      setEaglesoftDBN(null);
+      return;
+    }
+
+    // Special synthetic option for Eaglesoft detection/fetch
+    if (instanceId === '__eaglesoft__') {
+      // Reset basic fields
+      setConnectionName('Eaglesoft Database');
+      setDbType('mssql');
+      setServer('');
+      setHost('');
+      setPort('');
+      setDatabase('');
+      setUsername('');
+      setPassword('');
+      setWindowsAuth(false);
+      setCredentialsAutoFilled(false);
+      setCredentialsSource('');
+      setEaglesoftOdbcString(null);
+      setEaglesoftDSN(null);
+      setEaglesoftDBN(null);
+
+      if (window.electronAPI && window.electronAPI.fetchEaglesoftCredentials) {
+        setFetchingCredentials(true);
+        try {
+          const result = await window.electronAPI.fetchEaglesoftCredentials(true);
+
+          if (result.success && result.config) {
+            // Map Eaglesoft connection string parts into our standard fields:
+            // Server: DSN -> parsed as config.server
+            // Database: DBN -> parsed as config.database
+            // Username: UID -> parsed as config.username
+            // Password: PWD -> parsed as config.password
+            setCredentialsAutoFilled(true);
+            setCredentialsSource('Eaglesoft local installation');
+
+            if (result.config.server) setServer(result.config.server);
+            if (result.config.database) setDatabase(result.config.database);
+            if (result.config.username) setUsername(result.config.username);
+            if (result.config.password) setPassword(result.config.password);
+
+            // Store ODBC/DSN metadata so the connection can be tested via ODBC
+            setEaglesoftOdbcString(result.connectionString || null);
+            setEaglesoftDSN(result.config.DSN || result.config.server || null);
+            setEaglesoftDBN(result.config.DBN || result.config.database || null);
+          } else {
+            setCredentialsAutoFilled(false);
+            setCredentialsSource('');
+            setEaglesoftError(result.error || 'Failed to fetch Eaglesoft credentials');
+            setEaglesoftOdbcString(null);
+            setEaglesoftDSN(null);
+            setEaglesoftDBN(null);
+          }
+        } catch (error) {
+          console.error('Error fetching Eaglesoft credentials:', error);
+          setCredentialsAutoFilled(false);
+          setCredentialsSource('');
+          setEaglesoftError(error.message || 'Failed to fetch Eaglesoft credentials');
+          setEaglesoftOdbcString(null);
+          setEaglesoftDSN(null);
+          setEaglesoftDBN(null);
+        } finally {
+          setFetchingCredentials(false);
+        }
+      }
+
       return;
     }
 
@@ -136,6 +209,8 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
       return;
     }
 
+    const isEaglesoftInstance = selectedInstance === '__eaglesoft__';
+
     const connectionData = {
       name: connectionName.trim(),
       type: dbType,
@@ -154,6 +229,27 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
       if (!windowsAuth) {
         connectionData.config.username = username.trim();
         connectionData.config.password = password;
+      }
+
+      // If this connection was created from the Eaglesoft option, mirror the .NET
+      // behavior by testing via ODBC using the Eaglesoft connection string (DSN).
+      if (isEaglesoftInstance) {
+        const trimmedUser = (username || '').trim();
+
+        const builtOdbc =
+          [
+            (eaglesoftDSN || server.trim()) ? `DSN=${eaglesoftDSN || server.trim()}` : null,
+            (eaglesoftDBN || database.trim()) ? `DBN=${eaglesoftDBN || database.trim()}` : null,
+            trimmedUser ? `UID=${trimmedUser}` : null,
+            password ? `PWD=${password}` : null,
+          ]
+            .filter(Boolean)
+            .join(';');
+
+        connectionData.config.useOdbc = true;
+        connectionData.config.odbcConnectionString = eaglesoftOdbcString || builtOdbc;
+        connectionData.config.DSN = eaglesoftDSN || server.trim() || undefined;
+        connectionData.config.DBN = eaglesoftDBN || database.trim() || undefined;
       }
     } else if (dbType === 'mysql' || dbType === 'postgresql') {
       connectionData.config = {
@@ -240,6 +336,8 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
                   disabled={discoveringDatabases}
                 >
                   <option value="">-- Select a database --</option>
+                  {/* Special option for Eaglesoft auto-detect */}
+                  <option value="__eaglesoft__">Eaglesoft (local installation)</option>
                   {discoveredDatabases.length === 0 && !discoveringDatabases && (
                     <option value="" disabled>No databases found on this machine</option>
                   )}
@@ -273,6 +371,19 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
                   }}>
                     <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
                     Fetching credentials from registry...
+                  </div>
+                )}
+                {eaglesoftError && (
+                  <div style={{
+                    fontSize: '0.8rem',
+                    color: '#fbbf24',
+                    marginTop: '0.5rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}>
+                    <i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    {eaglesoftError}
                   </div>
                 )}
               </div>
