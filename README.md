@@ -34,7 +34,22 @@ npm run dev
 
 ## Building for Distribution
 
-To build the application for distribution, you can use tools like:
-- [electron-builder](https://www.electron.build/)
-- [electron-packager](https://github.com/electron/electron-packager)
+**Windows installer (with custom app icon):**
+
+1. **Option A – Run as Administrator (recommended):**  
+   Right‑click **`build-win-admin.cmd`** → **Run as administrator**.  
+   This builds the installer and embeds `build\installer.ico` in the app .exe.
+
+2. **Option B – Developer Mode (no admin):**  
+   Enable **Developer Mode**: Windows **Settings** → **Privacy & security** → **For developers** → **Developer Mode**.  
+   Then in a normal terminal:
+   ```bash
+   npm run dist:win
+   ```
+
+Output: `release\DentalXChange Electron-POC-1.0.0-Setup.exe`
+
+If you run `npm run dist:win` in a normal (non‑elevated) terminal and Developer Mode is off, the build may fail with “Cannot create symbolic link”. Use Option A or B above to fix it.
+
+Other tools: [electron-builder](https://www.electron.build/), [electron-packager](https://github.com/electron/electron-packager)
 

@@ -140,12 +140,18 @@ async function performRuntimeValidation() {
 }
 
 function createWindow() {
+  // Dev: use project build folder. Packaged: use extraResource (installer.ico in resources root)
+  const iconPath = isDev
+    ? path.join(__dirname, 'build', 'installer.ico')
+    : path.join(process.resourcesPath, 'installer.ico');
+
   // Create the browser window
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 768,
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

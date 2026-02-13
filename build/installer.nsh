@@ -801,10 +801,10 @@ FunctionEnd
   !endif
   
   !ifndef MUI_ICON
-    !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install-colorful.ico"
+    !define MUI_ICON "build\installer.ico"
   !endif
   !ifndef MUI_UNICON
-    !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall-colorful.ico"
+    !define MUI_UNICON "build\installer.ico"
   !endif
   
   !ifndef MUI_HEADERIMAGE

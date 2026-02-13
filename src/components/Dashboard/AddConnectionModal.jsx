@@ -251,18 +251,10 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
         connectionData.config.DSN = eaglesoftDSN || server.trim() || undefined;
         connectionData.config.DBN = eaglesoftDBN || database.trim() || undefined;
       }
-    } else if (dbType === 'mysql' || dbType === 'postgresql') {
+    } else if (dbType === 'mysql') {
       connectionData.config = {
         host: host.trim() || 'localhost',
-        port: port ? parseInt(port, 10) : (dbType === 'mysql' ? 3306 : 5432),
-        database: database.trim(),
-        username: username.trim(),
-        password: password,
-      };
-    } else if (dbType === 'mongodb') {
-      connectionData.config = {
-        host: host.trim() || 'localhost',
-        port: port ? parseInt(port, 10) : 27017,
+        port: port ? parseInt(port, 10) : 3306,
         database: database.trim(),
         username: username.trim(),
         password: password,
@@ -603,7 +595,7 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
                   id="database"
                   value={database}
                   onChange={(e) => setDatabase(e.target.value)}
-                  placeholder={dbType === 'mongodb' ? 'admin' : 'postgres'}
+                  placeholder="my_database"
                 />
               </div>
 

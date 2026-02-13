@@ -1,11 +1,10 @@
 appId: com.presidio.electron-poc
-productName: Electron POC
+productName: DentalXChange Electron-POC
 directories:
   output: release
   buildResources: build
 
-# Build configuration
-buildVersion: ${version}
+# Build configuration (buildVersion defaults to package.json version; do not use ${version} here or rcedit fails)
 compression: normal
 removePackageScripts: true
 
@@ -24,14 +23,21 @@ files:
   # Exclude odbc from the 64-bit build (Eaglesoft uses external 32-bit Node.js bridge)
   - "!node_modules/odbc/**/*"
 
+# Include app icon in packaged resources so the running app can use it (taskbar, etc.)
+extraResources:
+  - from: build/installer.ico
+    to: installer.ico
+
 win:
   target:
     - target: nsis
       arch:
         - x64
-  # icon: build/icon.ico  # Optional: Add icon file if available
+  # Path relative to buildResources (build/); this embeds the icon in the .exe
+  icon: installer.ico
   requestedExecutionLevel: requireAdministrator
-  signAndEditExecutable: false
+  # true = embed installer.ico in the app .exe (requires Admin or Developer Mode for first build)
+  signAndEditExecutable: true
   verifyUpdateCodeSignature: false
 
 nsis:
@@ -40,9 +46,9 @@ nsis:
   allowElevation: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  # installerIcon: build/installer-icon.ico  # Optional: Add icon file if available
-  # uninstallerIcon: build/uninstaller-icon.ico  # Optional: Add icon file if available
-  # installerHeaderIcon: build/header-icon.ico  # Optional: Add icon file if available
+  installerIcon: build/installer.ico
+  uninstallerIcon: build/installer.ico
+  installerHeaderIcon: build/installer.ico
   include: build/installer.nsh
   artifactName: ${productName}-${version}-Setup.${ext}
   deleteAppDataOnUninstall: true

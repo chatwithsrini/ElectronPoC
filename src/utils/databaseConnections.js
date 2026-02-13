@@ -34,8 +34,6 @@ function sanitizeConnectionsForRenderer(connections) {
 const DB_TYPES = {
   MSSQL: 'mssql',
   MYSQL: 'mysql',
-  POSTGRESQL: 'postgresql',
-  MONGODB: 'mongodb',
   ORACLE: 'oracle',
   SQLITE: 'sqlite',
 };
@@ -210,156 +208,18 @@ async function discoverMySqlInstances() {
 }
 
 /**
- * Discover PostgreSQL installations
- */
-async function discoverPostgreSqlInstances() {
-  if (process.platform !== 'win32') {
-    return { success: false, error: 'PostgreSQL discovery is only available on Windows', instances: [] };
-  }
-
-  try {
-    const instances = [];
-
-    // Check Windows services for PostgreSQL
-    try {
-      const { stdout } = await execPromise('sc query type= service state= all | findstr /i "postgresql"', { timeout: 5000 });
-      const lines = stdout.split('\n');
-      
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('SERVICE_NAME:')) {
-          const serviceName = lines[i].split(':')[1].trim();
-          if (serviceName.toLowerCase().includes('postgresql')) {
-            instances.push({
-              name: serviceName,
-              serverName: 'localhost',
-              displayName: `PostgreSQL (${serviceName})`,
-              type: DB_TYPES.POSTGRESQL,
-              port: 5432,
-              source: 'service',
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.log('PostgreSQL service discovery not available');
-    }
-
-    // Check common registry paths
-    const regPaths = [
-      { hive: Registry.HKLM, key: '\\SOFTWARE\\PostgreSQL' },
-      { hive: Registry.HKLM, key: '\\SOFTWARE\\WOW6432Node\\PostgreSQL' },
-    ];
-
-    for (const regPath of regPaths) {
-      try {
-        const regKey = new Registry({ hive: regPath.hive, key: regPath.key });
-        const items = await new Promise((resolve) => {
-          regKey.keys((err, keys) => {
-            if (err) resolve([]);
-            else resolve(keys);
-          });
-        });
-
-        for (const key of items) {
-          const keyName = key.key.split('\\').pop();
-          if (!instances.find(i => i.name === keyName)) {
-            instances.push({
-              name: keyName,
-              serverName: 'localhost',
-              displayName: `PostgreSQL (${keyName})`,
-              type: DB_TYPES.POSTGRESQL,
-              port: 5432,
-              source: 'registry',
-            });
-          }
-        }
-      } catch (err) {
-        console.log(`Registry path not found: ${regPath.key}`);
-      }
-    }
-
-    return {
-      success: true,
-      instances,
-      count: instances.length,
-    };
-  } catch (error) {
-    console.error('Error discovering PostgreSQL instances:', error);
-    return {
-      success: false,
-      error: error.message,
-      instances: [],
-    };
-  }
-}
-
-/**
- * Discover MongoDB installations
- */
-async function discoverMongoDbInstances() {
-  if (process.platform !== 'win32') {
-    return { success: false, error: 'MongoDB discovery is only available on Windows', instances: [] };
-  }
-
-  try {
-    const instances = [];
-
-    // Check Windows services for MongoDB
-    try {
-      const { stdout } = await execPromise('sc query type= service state= all | findstr /i "mongodb mongo"', { timeout: 5000 });
-      const lines = stdout.split('\n');
-      
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('SERVICE_NAME:')) {
-          const serviceName = lines[i].split(':')[1].trim();
-          if (serviceName.toLowerCase().includes('mongo')) {
-            instances.push({
-              name: serviceName,
-              serverName: 'localhost',
-              displayName: `MongoDB (${serviceName})`,
-              type: DB_TYPES.MONGODB,
-              port: 27017,
-              source: 'service',
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.log('MongoDB service discovery not available');
-    }
-
-    return {
-      success: true,
-      instances,
-      count: instances.length,
-    };
-  } catch (error) {
-    console.error('Error discovering MongoDB instances:', error);
-    return {
-      success: false,
-      error: error.message,
-      instances: [],
-    };
-  }
-}
-
-/**
  * Discover all database instances on the machine
  */
 async function discoverAllDatabases() {
   try {
-    const [sqlServer, mysql, postgresql, mongodb] = await Promise.all([
+    const [sqlServer, mysql] = await Promise.all([
       discoverSqlServerInstances(),
       discoverMySqlInstances(),
-      discoverPostgreSqlInstances(),
-      discoverMongoDbInstances(),
     ]);
 
     const allInstances = [
       ...(sqlServer.instances || []),
       ...(mysql.instances || []),
-      ...(postgresql.instances || []),
-      ...(mongodb.instances || []),
     ];
 
     return {
@@ -369,8 +229,6 @@ async function discoverAllDatabases() {
       byType: {
         mssql: sqlServer.instances || [],
         mysql: mysql.instances || [],
-        postgresql: postgresql.instances || [],
-        mongodb: mongodb.instances || [],
       },
     };
   } catch (error) {
@@ -409,23 +267,6 @@ async function discoverRegistryPaths(dbType, instanceName) {
         `\\SOFTWARE\\MySQL AB\\${instanceName}`,
         `\\SOFTWARE\\MySQL AB`,
         `\\SOFTWARE\\MySQL`,
-      ];
-      break;
-    case DB_TYPES.POSTGRESQL:
-      basePaths = [
-        `\\SOFTWARE\\YourApp\\PostgreSQLConnection\\${instanceName}`,
-        `\\SOFTWARE\\YourApp\\PostgreSQLConnection`,
-        `\\SOFTWARE\\PostgreSQL\\${instanceName}`,
-        `\\SOFTWARE\\PostgreSQL\\Installations\\${instanceName}`,
-        `\\SOFTWARE\\PostgreSQL`,
-      ];
-      break;
-    case DB_TYPES.MONGODB:
-      basePaths = [
-        `\\SOFTWARE\\YourApp\\MongoDBConnection\\${instanceName}`,
-        `\\SOFTWARE\\YourApp\\MongoDBConnection`,
-        `\\SOFTWARE\\MongoDB\\${instanceName}`,
-        `\\SOFTWARE\\MongoDB`,
       ];
       break;
   }
@@ -1069,103 +910,6 @@ async function testMysqlConnection(config) {
 }
 
 /**
- * Test PostgreSQL connection (placeholder - requires pg package)
- */
-async function testPostgresqlConnection(config) {
-  let Client;
-  try {
-    // Check if pg is available
-    try {
-      const pg = require('pg');
-      Client = pg.Client;
-    } catch (err) {
-      return {
-        success: false,
-        error: 'PostgreSQL driver not installed. Please install pg package.',
-      };
-    }
-
-    const client = new Client({
-      host: config.host || 'localhost',
-      port: config.port || 5432,
-      user: config.username || config.user,
-      password: config.password,
-      database: config.database || 'postgres',
-      connectionTimeoutMillis: config.connectionTimeout || 15000,
-    });
-
-    await client.connect();
-    const result = await client.query('SELECT version(), current_user, current_database()');
-    await client.end();
-
-    return {
-      success: true,
-      message: 'Connection successful',
-      serverInfo: {
-        version: result.rows[0]?.version || 'Unknown',
-        currentUser: result.rows[0]?.current_user || 'Unknown',
-        currentDatabase: result.rows[0]?.current_database || 'Unknown',
-        serverName: config.host,
-      },
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message || 'Connection failed',
-      code: error.code,
-    };
-  }
-}
-
-/**
- * Test MongoDB connection (placeholder - requires mongodb package)
- */
-async function testMongodbConnection(config) {
-  let MongoClient;
-  try {
-    // Check if mongodb is available
-    try {
-      const mongodb = require('mongodb');
-      MongoClient = mongodb.MongoClient;
-    } catch (err) {
-      return {
-        success: false,
-        error: 'MongoDB driver not installed. Please install mongodb package.',
-      };
-    }
-
-    const connectionString = config.connectionString || 
-      `mongodb://${config.username ? `${config.username}:${config.password}@` : ''}${config.host || 'localhost'}:${config.port || 27017}/${config.database || ''}`;
-
-    const client = new MongoClient(connectionString, {
-      serverSelectionTimeoutMS: config.connectionTimeout || 15000,
-    });
-
-    await client.connect();
-    const adminDb = client.db().admin();
-    const serverInfo = await adminDb.serverInfo();
-    await client.close();
-
-    return {
-      success: true,
-      message: 'Connection successful',
-      serverInfo: {
-        version: serverInfo.version || 'Unknown',
-        currentUser: config.username || 'Unknown',
-        currentDatabase: config.database || 'Unknown',
-        serverName: config.host,
-      },
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message || 'Connection failed',
-      code: error.code,
-    };
-  }
-}
-
-/**
  * Test a database connection
  */
 async function testConnection(connectionId) {
@@ -1190,15 +934,9 @@ async function testConnection(connectionId) {
         case DB_TYPES.MSSQL:
           result = await testMssqlConnection(connection.config);
           break;
-      case DB_TYPES.MYSQL:
-        result = await testMysqlConnection(connection.config);
-        break;
-      case DB_TYPES.POSTGRESQL:
-        result = await testPostgresqlConnection(connection.config);
-        break;
-      case DB_TYPES.MONGODB:
-        result = await testMongodbConnection(connection.config);
-        break;
+        case DB_TYPES.MYSQL:
+          result = await testMysqlConnection(connection.config);
+          break;
         default:
           result = {
             success: false,
@@ -1318,18 +1056,6 @@ function getSupportedDatabaseTypes() {
         defaultPort: 3306,
         supportsWindowsAuth: false,
         installed: isPackageInstalled('mysql2'),
-      },
-      [DB_TYPES.POSTGRESQL]: {
-        name: 'PostgreSQL',
-        defaultPort: 5432,
-        supportsWindowsAuth: false,
-        installed: isPackageInstalled('pg'),
-      },
-      [DB_TYPES.MONGODB]: {
-        name: 'MongoDB',
-        defaultPort: 27017,
-        supportsWindowsAuth: false,
-        installed: isPackageInstalled('mongodb'),
       },
       [DB_TYPES.ORACLE]: {
         name: 'Oracle Database',
@@ -1461,8 +1187,6 @@ module.exports = {
   discoverAllDatabases,
   discoverSqlServerInstances,
   discoverMySqlInstances,
-  discoverPostgreSqlInstances,
-  discoverMongoDbInstances,
   discoverRegistryPaths,
   readRegistryConfig,
   fetchCredentialsFromRegistry,
