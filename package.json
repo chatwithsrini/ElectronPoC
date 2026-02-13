@@ -1,5 +1,5 @@
 {
-  "name": "electron-hello-world",
+  "name": "dentalxchange-electron-poc",
   "version": "1.0.0",
   "description": "A simple Electron Hello World application",
   "main": "main.js",
@@ -32,11 +32,9 @@
   "license": "MIT",
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.1.0",
-    "mongodb": "^7.0.0",
     "mssql": "^10.0.1",
     "mysql2": "^3.16.2",
     "odbc": "^2.4.9",
-    "pg": "^8.18.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "winreg": "^1.2.5"

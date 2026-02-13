@@ -496,8 +496,6 @@ async function createEaglesoftConnection(connectionName = 'Eaglesoft Database', 
       const driverLower = config.driver.toLowerCase();
       if (driverLower.includes('mysql')) {
         dbType = 'mysql';
-      } else if (driverLower.includes('postgres')) {
-        dbType = 'postgresql';
       } else if (driverLower.includes('oracle')) {
         dbType = 'oracle';
       } else if (driverLower.includes('sqlite')) {
