@@ -1,8 +1,11 @@
-appId: com.presidio.electron-poc
-productName: Electron POC
+appId: com.presidio.dentalxchange.connector
+productName: DentalXChange Connector
 directories:
   output: release
   buildResources: build
+
+# App icon (used for the .exe and window)
+icon: build/icon.ico
 
 # Build configuration
 buildVersion: ${version}
@@ -29,7 +32,7 @@ win:
     - target: nsis
       arch:
         - x64
-  # icon: build/icon.ico  # Optional: Add icon file if available
+  icon: build/icon.ico
   requestedExecutionLevel: requireAdministrator
   signAndEditExecutable: false
   verifyUpdateCodeSignature: false
