@@ -7,8 +7,7 @@ directories:
 # App icon (used for the .exe and window)
 icon: build/icon.ico
 
-# Build configuration
-buildVersion: ${version}
+# Build configuration (version comes from package.json for FileVersion/ProductVersion)
 compression: normal
 removePackageScripts: true
 
