@@ -755,7 +755,12 @@ FunctionEnd
 ; CUSTOM INITIALIZATION
 ; ================================================================
 
+; Default installation path (Program Files on 64-bit Windows)
+!define DEFAULT_INSTALL_DIR "$PROGRAMFILES64\DentalXChange\DentalXChange Connector"
+
 !macro customInit
+  ; Set default installation path
+  StrCpy $INSTDIR "${DEFAULT_INSTALL_DIR}"
   StrCpy $AllChecksPassed "1"
   StrCpy $ConfigChecksRun "0"
   StrCpy $OS_VERSION_MAJOR "0"
