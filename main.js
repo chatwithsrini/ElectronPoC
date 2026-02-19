@@ -1,5 +1,34 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+// Disable GPU acceleration to avoid "GPU process isn't usable" errors when running
+// in RDP, Citrix, VMs, or environments without proper GPU access (error_code=18)
+// NOTE: Do NOT use disable-software-rasterizer - Chromium needs it to render when GPU is disabled
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-gpu-program-cache');
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('disable-gpu-process');
+app.commandLine.appendSwitch('in-process-gpu');
+// Disable sandbox - often required in RDP/Citrix/VDI where renderer fails to launch (error 18)
+app.commandLine.appendSwitch('no-sandbox');
+
+// Use a writable cache directory to avoid "Unable to move the cache: Access is denied"
+// when running from Program Files or in restricted environments
+if (process.platform === 'win32') {
+  const cacheBase = process.env.LOCALAPPDATA || process.env.TEMP || os.tmpdir();
+  const cacheDir = path.join(cacheBase, 'DentalXChangeConnector', 'Cache');
+  try {
+    fs.mkdirSync(cacheDir, { recursive: true });
+    app.setPath('cache', cacheDir);
+  } catch (err) {
+    console.warn('Could not set custom cache path:', err.message);
+  }
+}
 const {
   getWindowsUserInfo,
   authenticateWithWindows,
@@ -50,6 +79,7 @@ const {
   getAllConnections,
   testConnection,
   testAllConnections,
+  listTables,
   getAllConnectionStatuses,
   getSupportedDatabaseTypes,
   discoverAllDatabases,
@@ -57,6 +87,17 @@ const {
   isEaglesoftInstalled,
   fetchEaglesoftCredentials,
   addEaglesoftConnection,
+  isDentrixInstalled,
+  checkDentrixInstallation,
+  checkDentrixAndGetConnectionString,
+  testDentrixInitialization,
+  uploadDentrixDocuments,
+  fetchDentrixCredentials,
+  fetchDentrixCredentialsWithPracticeInfo,
+  addDentrixConnection,
+  getDentrixPracticeInfo,
+  getDentrixAppointments,
+  getDentrixAppointmentIds,
 } = require('./src/utils/databaseConnections');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -145,37 +186,61 @@ function createWindow() {
     ? path.join(__dirname, 'build', 'installer.ico')
     : path.join(process.resourcesPath, 'installer.ico');
 
-  // Create the browser window
+  // Create the browser window - show immediately so it appears even if page load is slow/fails
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 768,
+    center: true,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+      // Disable sandbox for renderer - required when GPU/launch fails in RDP/Citrix/VDI
+      sandbox: false,
     },
-    show: false, // Don't show until ready
+    show: true, // Show immediately - ready-to-show may never fire in restricted GPU environments
   });
 
-  // Maximize window on ready
+  // Maximize when page is ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.maximize();
+  });
+
+  // Handle load failures - ensure window stays visible
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('Window load failed:', errorCode, errorDescription, validatedURL);
     mainWindow.show();
+  });
+
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('Renderer process crashed:', details.reason, details.exitCode);
   });
 
   // Load the app
   if (isDev) {
-    // In development, load from Vite dev server
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    // In production, load from built files
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    const htmlPath = path.join(__dirname, 'dist', 'index.html');
+    if (!fs.existsSync(htmlPath)) {
+      console.error('index.html not found at:', htmlPath);
+      mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(
+        `<h1>Load Error</h1><p>index.html not found at: ${htmlPath}</p><p>__dirname: ${__dirname}</p>`
+      )}`);
+    } else {
+      mainWindow.loadFile(htmlPath).catch((err) => {
+        console.error('loadFile failed:', err);
+        mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(
+          `<h1>Load Error</h1><p>${err.message}</p>`
+        )}`);
+      });
+    }
   }
-  
+
   return mainWindow;
 }
 
@@ -674,6 +739,20 @@ ipcMain.handle('db-connections:test-all', async () => {
   }
 });
 
+ipcMain.handle('db-connections:list-tables', async (event, connectionId) => {
+  try {
+    const result = await listTables(connectionId);
+    return result;
+  } catch (error) {
+    console.error('Error listing database tables:', error);
+    return {
+      success: false,
+      tables: [],
+      error: error.message || 'Failed to list database tables',
+    };
+  }
+});
+
 ipcMain.handle('db-connections:get-statuses', async () => {
   try {
     const result = await getAllConnectionStatuses();
@@ -764,6 +843,128 @@ ipcMain.handle('db-connections:eaglesoft:add-connection', async (event, connecti
       success: false,
       error: error.message || 'Failed to add Eaglesoft connection',
     };
+  }
+});
+
+// IPC Handlers for Dentrix-specific operations
+ipcMain.handle('db-connections:dentrix:check-installed', async (event, dentrixServicePath) => {
+  try {
+    const result = await isDentrixInstalled(dentrixServicePath);
+    return result;
+  } catch (error) {
+    console.error('Error checking Dentrix installation:', error);
+    return {
+      installed: false,
+      error: error.message || 'Failed to check Dentrix installation',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:check-installation', async (event, dentrixServicePath) => {
+  try {
+    return await checkDentrixInstallation(dentrixServicePath);
+  } catch (error) {
+    console.error('Error checking Dentrix installation:', error);
+    return {
+      installed: false,
+      error: error.message || 'Failed to check Dentrix installation',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:check-and-get-connection-string', async (event, dentrixServicePath) => {
+  try {
+    return await checkDentrixAndGetConnectionString(dentrixServicePath);
+  } catch (error) {
+    console.error('Error checking Dentrix and getting connection string:', error);
+    return {
+      installed: false,
+      connectionString: null,
+      config: null,
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:test-initialization', async (event, userName, password, dentrixServicePath) => {
+  try {
+    return await testDentrixInitialization(userName, password, dentrixServicePath);
+  } catch (error) {
+    console.error('Error testing Dentrix initialization:', error);
+    return { success: false, initialized: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:upload-documents', async (event, documents, dentrixServicePath) => {
+  try {
+    return await uploadDentrixDocuments(documents, dentrixServicePath);
+  } catch (error) {
+    console.error('Error uploading Dentrix documents:', error);
+    return { success: false, results: {}, error: error.message };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:fetch-credentials', async (event, dentrixServicePath) => {
+  try {
+    const result = await fetchDentrixCredentials(dentrixServicePath);
+    return result;
+  } catch (error) {
+    console.error('Error fetching Dentrix credentials:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch Dentrix credentials',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:add-connection', async (event, connectionName = 'Dentrix Database', dentrixServicePath) => {
+  try {
+    const result = await addDentrixConnection(connectionName, dentrixServicePath);
+    return result;
+  } catch (error) {
+    console.error('Error adding Dentrix connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add Dentrix connection',
+    };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:fetch-credentials-with-practice-info', async (event, dentrixServicePath) => {
+  try {
+    const result = await fetchDentrixCredentialsWithPracticeInfo(dentrixServicePath);
+    return result;
+  } catch (error) {
+    console.error('Error fetching Dentrix credentials with practice info:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:get-practice-info', async (event, connectionString) => {
+  try {
+    return await getDentrixPracticeInfo(connectionString);
+  } catch (error) {
+    console.error('Error getting Dentrix practice info:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:get-appointments', async (event, connectionString, startDate, endDate) => {
+  try {
+    return await getDentrixAppointments(connectionString, startDate, endDate);
+  } catch (error) {
+    console.error('Error getting Dentrix appointments:', error);
+    return { success: false, appointments: [], error: error.message };
+  }
+});
+
+ipcMain.handle('db-connections:dentrix:get-appointment-ids', async (event, connectionString, startDate, endDate) => {
+  try {
+    return await getDentrixAppointmentIds(connectionString, startDate, endDate);
+  } catch (error) {
+    console.error('Error getting Dentrix appointment IDs:', error);
+    return { success: false, appointmentIds: [], error: error.message };
   }
 });
 

@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateDatabaseConnection: (connectionId, updates) => ipcRenderer.invoke('db-connections:update', connectionId, updates),
   testDatabaseConnection: (connectionId) => ipcRenderer.invoke('db-connections:test', connectionId),
   testAllDatabaseConnections: () => ipcRenderer.invoke('db-connections:test-all'),
+  listDatabaseTables: (connectionId) => ipcRenderer.invoke('db-connections:list-tables', connectionId),
   getDatabaseConnectionStatuses: () => ipcRenderer.invoke('db-connections:get-statuses'),
   getSupportedDatabaseTypes: () => ipcRenderer.invoke('db-connections:get-supported-types'),
   discoverAllDatabases: () => ipcRenderer.invoke('db-connections:discover-all'),
@@ -64,5 +65,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isEaglesoftInstalled: () => ipcRenderer.invoke('db-connections:eaglesoft:check-installed'),
   fetchEaglesoftCredentials: (usePrimaryDatabase = true) => ipcRenderer.invoke('db-connections:eaglesoft:fetch-credentials', usePrimaryDatabase),
   addEaglesoftConnection: (connectionName, usePrimaryDatabase = true) => ipcRenderer.invoke('db-connections:eaglesoft:add-connection', connectionName, usePrimaryDatabase),
+
+  // Dentrix-specific Database Operations
+  isDentrixInstalled: (dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:check-installed', dentrixServicePath),
+  checkDentrixInstallation: (dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:check-installation', dentrixServicePath),
+  checkDentrixAndGetConnectionString: (dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:check-and-get-connection-string', dentrixServicePath),
+  testDentrixInitialization: (userName, password, dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:test-initialization', userName, password, dentrixServicePath),
+  uploadDentrixDocuments: (documents, dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:upload-documents', documents, dentrixServicePath),
+  fetchDentrixCredentials: (dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:fetch-credentials', dentrixServicePath),
+  fetchDentrixCredentialsWithPracticeInfo: (dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:fetch-credentials-with-practice-info', dentrixServicePath),
+  addDentrixConnection: (connectionName, dentrixServicePath) => ipcRenderer.invoke('db-connections:dentrix:add-connection', connectionName, dentrixServicePath),
+  getDentrixPracticeInfo: (connectionString) => ipcRenderer.invoke('db-connections:dentrix:get-practice-info', connectionString),
+  getDentrixAppointments: (connectionString, startDate, endDate) => ipcRenderer.invoke('db-connections:dentrix:get-appointments', connectionString, startDate, endDate),
+  getDentrixAppointmentIds: (connectionString, startDate, endDate) => ipcRenderer.invoke('db-connections:dentrix:get-appointment-ids', connectionString, startDate, endDate),
 });
 

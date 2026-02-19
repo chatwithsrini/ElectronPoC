@@ -5,6 +5,7 @@ export const useDatabaseConnections = () => {
   const [dbConnectionsLoading, setDbConnectionsLoading] = useState(false);
   const [dbConnectionsError, setDbConnectionsError] = useState(null);
   const [testingConnections, setTestingConnections] = useState({});
+  const [listingTablesConnections, setListingTablesConnections] = useState({});
 
   const loadDatabaseConnections = useCallback(async () => {
     try {
@@ -80,6 +81,29 @@ export const useDatabaseConnections = () => {
       alert(`Failed to test connection: ${error.message || 'Unknown error'}`);
     } finally {
       setTestingConnections(prev => ({ ...prev, [connectionId]: false }));
+    }
+  }, []);
+
+  const handleListTables = useCallback(async (connectionId) => {
+    if (!window.electronAPI || !window.electronAPI.listDatabaseTables) {
+      alert('Database tables API not available');
+      return null;
+    }
+
+    setListingTablesConnections(prev => ({ ...prev, [connectionId]: true }));
+
+    try {
+      const result = await window.electronAPI.listDatabaseTables(connectionId);
+      return result;
+    } catch (error) {
+      console.error('Error listing tables:', error);
+      return {
+        success: false,
+        tables: [],
+        error: error.message || 'Failed to list tables',
+      };
+    } finally {
+      setListingTablesConnections(prev => ({ ...prev, [connectionId]: false }));
     }
   }, []);
 
@@ -224,9 +248,11 @@ export const useDatabaseConnections = () => {
     dbConnectionsLoading,
     dbConnectionsError,
     testingConnections,
+    listingTablesConnections,
     loadDatabaseConnections,
     loadDatabaseConnectionStatuses,
     handleTestConnection,
+    handleListTables,
     handleTestAllConnections,
     handleRemoveConnection,
     handleAddConnection,

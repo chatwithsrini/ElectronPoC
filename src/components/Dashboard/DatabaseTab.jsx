@@ -7,14 +7,17 @@ function DatabaseTab({
   dbConnectionsLoading,
   dbConnectionsError,
   testingConnections,
+  listingTablesConnections,
   supportedDbTypes,
   onRefresh,
   onTestConnection,
+  onListTables,
   onTestAllConnections,
   onRemoveConnection,
   onAddConnection,
 }) {
   const [showAddConnectionModal, setShowAddConnectionModal] = useState(false);
+  const [tablesModal, setTablesModal] = useState(null); // { connectionName, result }
 
   const connectedCount = dbConnections.filter(conn => conn.status?.success === true).length;
   const totalCount = dbConnections.length;
@@ -29,6 +32,14 @@ function DatabaseTab({
     if (success) {
       setShowAddConnectionModal(false);
     }
+  };
+
+  const handleListTablesClick = async (connection) => {
+    const result = await onListTables(connection.id);
+    setTablesModal({
+      connectionName: connection.name,
+      result: result || { success: false, tables: [], error: 'Unknown error' },
+    });
   };
 
   return (
@@ -108,6 +119,7 @@ function DatabaseTab({
                 const statusColor = getConnectionStatusColor(connection.status);
                 const statusText = getConnectionStatusText(connection.status);
                 const isTesting = testingConnections[connection.id];
+                const isListingTables = listingTablesConnections[connection.id];
 
                 return (
                   <div key={connection.id} className="service-item">
@@ -215,6 +227,19 @@ function DatabaseTab({
                         Test
                       </button>
                       <button
+                        className="service-item__action service-item__action--restart"
+                        onClick={() => handleListTablesClick(connection)}
+                        disabled={isListingTables || connection.status?.success !== true}
+                        title={connection.status?.success === true ? "List all user-defined tables" : "Test connection first"}
+                      >
+                        {isListingTables ? (
+                          <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                        ) : (
+                          <i className="fa-solid fa-list" aria-hidden="true"></i>
+                        )}
+                        List All Tables
+                      </button>
+                      <button
                         className="service-item__action service-item__action--stop"
                         onClick={() => onRemoveConnection(connection.id)}
                         title="Remove connection"
@@ -238,6 +263,51 @@ function DatabaseTab({
           onClose={() => setShowAddConnectionModal(false)}
           onAdd={handleAddConnectionSubmit}
         />
+      )}
+
+      {/* Tables List Modal */}
+      {tablesModal && (
+        <div className="modal-overlay" onClick={() => setTablesModal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '32rem', maxHeight: '80vh' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">User-Defined Tables — {tablesModal.connectionName}</h3>
+              <button className="modal-close" onClick={() => setTablesModal(null)}>
+                <i className="fa-solid fa-times" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div className="modal-body" style={{ overflowY: 'auto', maxHeight: '50vh' }}>
+              {tablesModal.result.success ? (
+                tablesModal.result.tables && tablesModal.result.tables.length > 0 ? (
+                  <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                    {tablesModal.result.tables.map((t, i) => (
+                      <li key={i} style={{ padding: '0.35rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                        {t.schema ? (
+                          <span><span style={{ color: '#94a3b8' }}>{t.schema}</span>.<span>{t.name}</span></span>
+                        ) : (
+                          <span>{t.name}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p style={{ color: '#94a3b8', margin: 0 }}>No user-defined tables found.</p>
+                )
+              ) : (
+                <p style={{ color: '#ef4444', margin: 0 }}>{tablesModal.result.error || 'Failed to list tables'}</p>
+              )}
+            </div>
+            <div className="modal-footer">
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8', marginRight: 'auto' }}>
+                {tablesModal.result.success && tablesModal.result.tables
+                  ? `${tablesModal.result.tables.length} table(s)`
+                  : ''}
+              </span>
+              <button type="button" className="modal-btn modal-btn--secondary" onClick={() => setTablesModal(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

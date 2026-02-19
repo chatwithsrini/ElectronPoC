@@ -21,9 +21,11 @@ function Dashboard({ user, onLogout }) {
     dbConnectionsLoading,
     dbConnectionsError,
     testingConnections,
+    listingTablesConnections,
     loadDatabaseConnections,
     loadDatabaseConnectionStatuses,
     handleTestConnection,
+    handleListTables,
     handleTestAllConnections,
     handleRemoveConnection,
     handleAddConnection,
@@ -144,9 +146,11 @@ function Dashboard({ user, onLogout }) {
             dbConnectionsLoading={dbConnectionsLoading}
             dbConnectionsError={dbConnectionsError}
             testingConnections={testingConnections}
+            listingTablesConnections={listingTablesConnections}
             supportedDbTypes={supportedDbTypes}
             onRefresh={loadDatabaseConnections}
             onTestConnection={handleTestConnection}
+            onListTables={handleListTables}
             onTestAllConnections={handleTestAllConnections}
             onRemoveConnection={handleRemoveConnection}
             onAddConnection={handleAddConnection}

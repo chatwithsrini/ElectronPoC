@@ -12,6 +12,14 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
   const [eaglesoftOdbcString, setEaglesoftOdbcString] = useState(null);
   const [eaglesoftDSN, setEaglesoftDSN] = useState(null);
   const [eaglesoftDBN, setEaglesoftDBN] = useState(null);
+  const [dentrixError, setDentrixError] = useState(null);
+  const [dentrixOdbcString, setDentrixOdbcString] = useState(null);
+  const [dentrixServer, setDentrixServer] = useState(null);
+  const [dentrixDBN, setDentrixDBN] = useState(null);
+  const [dentrixSiteId, setDentrixSiteId] = useState(null);
+  const [dentrixSourceId, setDentrixSourceId] = useState(null);
+  const [dentrixTestMessage, setDentrixTestMessage] = useState(null);
+  const [dentrixTesting, setDentrixTesting] = useState(false);
   
   const [connectionName, setConnectionName] = useState('');
   const [dbType, setDbType] = useState('mssql');
@@ -54,7 +62,8 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
   const handleInstanceSelect = async (instanceId) => {
     setSelectedInstance(instanceId);
     setEaglesoftError(null);
-    
+    setDentrixError(null);
+
     if (!instanceId) {
       setConnectionName('');
       setDbType('mssql');
@@ -70,6 +79,94 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
       setEaglesoftOdbcString(null);
       setEaglesoftDSN(null);
       setEaglesoftDBN(null);
+      setDentrixOdbcString(null);
+      setDentrixServer(null);
+      setDentrixDBN(null);
+      setDentrixSiteId(null);
+      setDentrixSourceId(null);
+      setDentrixTestMessage(null);
+      return;
+    }
+
+    // Dentrix flow: mirror .NET MainForm.PopulateDentrixCoreConnectionString
+    // 1. Check installation (Dentrix Service + Dentrix.API.dll)
+    // 2. Get connection string via Dentrix Service
+    // 3. Get practice info (siteId, sourceId)
+    if (instanceId === '__dentrix__') {
+      setConnectionName('Dentrix Database');
+      setDbType('mssql');
+      setServer('');
+      setHost('');
+      setPort('');
+      setDatabase('');
+      setUsername('');
+      setPassword('');
+      setWindowsAuth(false);
+      setCredentialsAutoFilled(false);
+      setCredentialsSource('');
+      setEaglesoftOdbcString(null);
+      setEaglesoftDSN(null);
+      setEaglesoftDBN(null);
+      setDentrixOdbcString(null);
+      setDentrixServer(null);
+      setDentrixDBN(null);
+      setDentrixSiteId(null);
+      setDentrixSourceId(null);
+      setDentrixTestMessage(null);
+
+      if (window.electronAPI?.checkDentrixInstallation && window.electronAPI?.fetchDentrixCredentialsWithPracticeInfo) {
+        setFetchingCredentials(true);
+        setDentrixError(null);
+        try {
+          const installCheck = await window.electronAPI.checkDentrixInstallation();
+          if (!installCheck.installed) {
+            setDentrixError(installCheck.error || 'Dentrix is not installed');
+            setFetchingCredentials(false);
+            return;
+          }
+
+          const result = await window.electronAPI.fetchDentrixCredentialsWithPracticeInfo();
+
+          if (result.success && result.config) {
+            setCredentialsAutoFilled(true);
+            setCredentialsSource('Dentrix (via Dentrix Service)');
+
+            if (result.config.server) setServer(result.config.server);
+            if (result.config.database) setDatabase(result.config.database);
+            if (result.config.username) setUsername(result.config.username);
+            if (result.config.password) setPassword(result.config.password);
+
+            setDentrixOdbcString(result.connectionString || null);
+            setDentrixServer(result.config.server || result.config.DSN || null);
+            setDentrixDBN(result.config.database || result.config.DBN || null);
+            setDentrixSiteId(result.siteId ?? null);
+            setDentrixSourceId(result.sourceId ?? null);
+            setDentrixError(null);
+          } else {
+            setCredentialsAutoFilled(false);
+            setCredentialsSource('');
+            setDentrixError(result.error || 'Failed to fetch Dentrix credentials');
+            setDentrixOdbcString(null);
+            setDentrixServer(null);
+            setDentrixDBN(null);
+            setDentrixSiteId(null);
+            setDentrixSourceId(null);
+          }
+        } catch (error) {
+          console.error('Error fetching Dentrix credentials:', error);
+          setCredentialsAutoFilled(false);
+          setCredentialsSource('');
+          setDentrixError(error.message || 'Failed to fetch Dentrix credentials');
+          setDentrixOdbcString(null);
+          setDentrixServer(null);
+          setDentrixDBN(null);
+          setDentrixSiteId(null);
+          setDentrixSourceId(null);
+        } finally {
+          setFetchingCredentials(false);
+        }
+      }
+
       return;
     }
 
@@ -210,6 +307,7 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
     }
 
     const isEaglesoftInstance = selectedInstance === '__eaglesoft__';
+    const isDentrixInstance = selectedInstance === '__dentrix__';
 
     const connectionData = {
       name: connectionName.trim(),
@@ -250,6 +348,29 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
         connectionData.config.odbcConnectionString = eaglesoftOdbcString || builtOdbc;
         connectionData.config.DSN = eaglesoftDSN || server.trim() || undefined;
         connectionData.config.DBN = eaglesoftDBN || database.trim() || undefined;
+      }
+
+      // If this connection was created from the Dentrix option, mirror the .NET
+      // DentrixCore plugin behavior - uses ODBC via Dentrix Service connection string.
+      if (isDentrixInstance) {
+        const trimmedUser = (username || '').trim();
+
+        const builtOdbc =
+          [
+            (dentrixServer || server.trim()) ? `Server=${dentrixServer || server.trim()}` : null,
+            (dentrixDBN || database.trim()) ? `DBN=${dentrixDBN || database.trim()}` : null,
+            trimmedUser ? `UID=${trimmedUser}` : null,
+            password ? `PWD=${password}` : null,
+          ]
+            .filter(Boolean)
+            .join(';');
+
+        connectionData.config.useOdbc = true;
+        connectionData.config.odbcConnectionString = dentrixOdbcString || builtOdbc;
+        connectionData.config.DSN = dentrixServer || server.trim() || undefined;
+        connectionData.config.DBN = dentrixDBN || database.trim() || undefined;
+        if (dentrixSiteId) connectionData.config.siteId = dentrixSiteId;
+        if (dentrixSourceId) connectionData.config.sourceId = dentrixSourceId;
       }
     } else if (dbType === 'mysql') {
       connectionData.config = {
@@ -330,6 +451,7 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
                   <option value="">-- Select a database --</option>
                   {/* Special option for Eaglesoft auto-detect */}
                   <option value="__eaglesoft__">Eaglesoft (local installation)</option>
+                  <option value="__dentrix__">Dentrix (via Dentrix Service)</option>
                   {discoveredDatabases.length === 0 && !discoveringDatabases && (
                     <option value="" disabled>No databases found on this machine</option>
                   )}
@@ -376,6 +498,54 @@ function AddConnectionModal({ supportedDbTypes, onClose, onAdd }) {
                   }}>
                     <i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
                     {eaglesoftError}
+                  </div>
+                )}
+                {dentrixError && (
+                  <div style={{
+                    fontSize: '0.8rem',
+                    color: '#fbbf24',
+                    marginTop: '0.5rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                  }}>
+                    <i className="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    {dentrixError}
+                  </div>
+                )}
+                {selectedInstance === '__dentrix__' && credentialsAutoFilled && (dentrixSiteId || dentrixSourceId) && (
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.5rem' }}>
+                    Practice: {dentrixSiteId || '—'} | Source ID: {dentrixSourceId || '—'}
+                  </div>
+                )}
+                {selectedInstance === '__dentrix__' && credentialsAutoFilled && (
+                  <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="mode-selector-btn"
+                      onClick={async () => {
+                        if (!window.electronAPI?.testDentrixInitialization) return;
+                        setDentrixTestMessage(null);
+                        setDentrixTesting(true);
+                        try {
+                          const result = await window.electronAPI.testDentrixInitialization(username, password);
+                          setDentrixTestMessage(result.initialized ? 'Dentrix API connection is successful!' : (result.error || 'Dentrix API connection failed'));
+                        } catch (e) {
+                          setDentrixTestMessage(e.message || 'Test failed');
+                        } finally {
+                          setDentrixTesting(false);
+                        }
+                      }}
+                      disabled={dentrixTesting}
+                    >
+                      {dentrixTesting ? <i className="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> : <i className="fa-solid fa-vial" aria-hidden="true"></i>}
+                      {' '}Test Dentrix API
+                    </button>
+                    {dentrixTestMessage && (
+                      <span style={{ fontSize: '0.8rem', color: dentrixTestMessage.includes('successful') ? '#22c55e' : '#fbbf24' }}>
+                        {dentrixTestMessage}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

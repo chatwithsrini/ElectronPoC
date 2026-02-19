@@ -5,6 +5,8 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const Registry = require('winreg');
 const eaglesoftCredentials = require('./eaglesoftCredentials');
+const dentrixCoreCredentials = require('./dentrixCoreCredentials');
+const dentrixCoreDataService = require('./dentrixCoreDataService');
 
 const execPromise = promisify(exec);
 
@@ -997,6 +999,303 @@ async function testAllConnections() {
 }
 
 /**
+ * List user-defined tables for MSSQL connection
+ */
+async function listMssqlTables(config) {
+  let pool = null;
+  try {
+    const connectionConfig = {
+      server: config.server || 'localhost',
+      database: config.database || '',
+      port: config.port || 1433,
+      options: {
+        encrypt: config.encrypt !== false,
+        trustServerCertificate: config.trustServerCertificate === true,
+        enableArithAbort: true,
+      },
+      connectionTimeout: config.connectionTimeout || 15000,
+      requestTimeout: config.requestTimeout || 30000,
+    };
+
+    if (config.windowsAuth) {
+      connectionConfig.authentication = { type: 'default' };
+    } else {
+      connectionConfig.user = config.username || config.user;
+      connectionConfig.password = config.password;
+    }
+
+    pool = await sql.connect(connectionConfig);
+    const result = await pool.request().query(
+      `SELECT TABLE_SCHEMA AS [schema], TABLE_NAME AS tableName
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_SCHEMA, TABLE_NAME`
+    );
+
+    const tables = (result.recordset || []).map(r => ({
+      schema: r.schema || r.TABLE_SCHEMA || r.table_schema,
+      name: r.tableName || r.TABLE_NAME || r.table_name,
+    }));
+
+    return { success: true, tables };
+  } catch (error) {
+    return {
+      success: false,
+      tables: [],
+      error: error.message || 'Failed to list tables',
+    };
+  } finally {
+    if (pool) {
+      try {
+        await pool.close();
+      } catch (err) {
+        console.error('Error closing pool:', err);
+      }
+    }
+  }
+}
+
+/**
+ * List user-defined tables for MySQL connection
+ */
+async function listMysqlTables(config) {
+  let connection;
+  try {
+    const mysql = require('mysql2/promise');
+    const host = (config.host || 'localhost').trim().toLowerCase();
+    const port = parseInt(config.port, 10) || 3306;
+    const user = (config.username || config.user || 'root').trim();
+    const password = config.password != null ? String(config.password).trim() : '';
+    const database = (config.database || '').trim() || undefined;
+
+    if (password === PASSWORD_PLACEHOLDER) {
+      return {
+        success: false,
+        tables: [],
+        error: 'Saved password is masked. Remove and re-add the connection to list tables.',
+      };
+    }
+
+    const baseConfig = {
+      host: host === 'localhost' ? '127.0.0.1' : host,
+      port,
+      user,
+      password,
+      database,
+    };
+
+    connection = await mysql.createConnection(baseConfig);
+
+    const [rows] = await connection.execute(
+      `SELECT TABLE_SCHEMA AS schemaName, TABLE_NAME AS tableName
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+       AND TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_SCHEMA, TABLE_NAME`
+    );
+
+    const tables = (rows || []).map(r => ({
+      schema: r.schemaName || r.TABLE_SCHEMA || r.table_schema,
+      name: r.tableName || r.TABLE_NAME || r.table_name,
+    }));
+
+    return { success: true, tables };
+  } catch (error) {
+    return {
+      success: false,
+      tables: [],
+      error: error.message || 'Failed to list tables',
+    };
+  } finally {
+    if (connection) {
+      try {
+        await connection.end();
+      } catch (err) {
+        console.error('Error closing MySQL connection:', err);
+      }
+    }
+  }
+}
+
+/**
+ * Dentrix (FairCom c-tree) specific query - INFORMATION_SCHEMA.TABLES does not exist.
+ * Uses admin.systabauth to list tables the current user has select permission on.
+ */
+const DENTRIX_LIST_TABLES_QUERY = `
+  SELECT DISTINCT tbl
+  FROM admin.systabauth
+  WHERE sel IN ('g','y')
+  AND grantee=(SELECT SUSER_NAME() FROM admin.syscalctable)
+  ORDER BY tbl
+`.trim();
+
+/**
+ * Eaglesoft (SQLite) specific query - SQLite uses sqlite_master, not INFORMATION_SCHEMA.
+ * Excludes internal sqlite_* tables.
+ */
+const EAGLESOFT_SQLITE_LIST_TABLES_QUERY = `
+  SELECT name
+  FROM sqlite_master
+  WHERE type='table' AND name NOT LIKE 'sqlite_%'
+  ORDER BY name
+`.trim();
+
+/**
+ * List user-defined tables for ODBC connection (Eaglesoft, Dentrix, etc.)
+ * Eaglesoft uses SQLite; Dentrix uses FairCom c-tree. Both lack INFORMATION_SCHEMA.TABLES.
+ */
+async function listOdbcTables(config) {
+  try {
+    const dentrixOdbcBridge = require('./dentrixOdbcBridge');
+    const connectionString =
+      config.odbcConnectionString ||
+      [
+        config.DBN ? `DBN=${config.DBN}` : null,
+        config.DSN ? `DSN=${config.DSN}` : null,
+        config.username ? `UID=${config.username}` : null,
+        config.password ? `PWD=${config.password}` : null,
+      ]
+        .filter(Boolean)
+        .join(';');
+
+    if (!connectionString) {
+      return {
+        success: false,
+        tables: [],
+        error: 'Missing ODBC connection string',
+      };
+    }
+
+    if (config.password === PASSWORD_PLACEHOLDER) {
+      return {
+        success: false,
+        tables: [],
+        error: 'Saved password is masked. Remove and re-add the connection to list tables.',
+      };
+    }
+
+    // Try standard INFORMATION_SCHEMA first (works for SQL Server, MySQL, Sybase ODBC)
+    const standardQuery =
+      `SELECT TABLE_SCHEMA, TABLE_NAME
+       FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_TYPE = 'BASE TABLE'
+       ORDER BY TABLE_SCHEMA, TABLE_NAME`;
+
+    let result = await dentrixOdbcBridge.executeOdbcQuery(connectionString, standardQuery, []);
+
+    // Dentrix uses FairCom c-tree - INFORMATION_SCHEMA.TABLES does not exist.
+    const isDentrixFairComError =
+      !result.success &&
+      result.error &&
+      /tables not found|Table\/View\/Synonym|FairCom|ctreeSQL|22506/i.test(result.error);
+
+    if (isDentrixFairComError) {
+      result = await dentrixOdbcBridge.executeOdbcQuery(connectionString, DENTRIX_LIST_TABLES_QUERY, []);
+      if (!result.success) {
+        return {
+          success: false,
+          tables: [],
+          error: result.error || 'Failed to list tables',
+        };
+      }
+      const tables = (result.rows || []).map(r => ({
+        schema: 'admin',
+        name: r.tbl || r.TBL || r.Table || '',
+      })).filter(t => t.name);
+      return { success: true, tables };
+    }
+
+    // Eaglesoft uses SQLite (SQLiteStudio) - INFORMATION_SCHEMA.TABLES does not exist.
+    // Try sqlite_master when standard query fails (SQLite-specific).
+    const isEaglesoftSqliteError =
+      !result.success &&
+      result.error &&
+      /no such table|INFORMATION_SCHEMA|sqlite|unrecognized token|near.*table/i.test(result.error);
+
+    if (isEaglesoftSqliteError) {
+      result = await dentrixOdbcBridge.executeOdbcQuery(connectionString, EAGLESOFT_SQLITE_LIST_TABLES_QUERY, []);
+      if (!result.success) {
+        return {
+          success: false,
+          tables: [],
+          error: result.error || 'Failed to list tables',
+        };
+      }
+      const tables = (result.rows || []).map(r => ({
+        schema: '',
+        name: r.name || r.NAME || '',
+      })).filter(t => t.name);
+      return { success: true, tables };
+    }
+
+    if (!result.success) {
+      return {
+        success: false,
+        tables: [],
+        error: result.error || 'Failed to list tables',
+      };
+    }
+
+    const tables = (result.rows || []).map(r => ({
+      schema: r.TABLE_SCHEMA || r.table_schema,
+      name: r.TABLE_NAME || r.table_name,
+    }));
+
+    return { success: true, tables };
+  } catch (error) {
+    return {
+      success: false,
+      tables: [],
+      error: error.message || 'Failed to list tables',
+    };
+  }
+}
+
+/**
+ * List all user-defined table names for a database connection
+ * @param {string} connectionId - Connection ID
+ * @returns {Promise<Object>} { success, tables: [{ schema, name }], error }
+ */
+async function listTables(connectionId) {
+  try {
+    await loadSavedConnections();
+    const connection = savedConnections.find(conn => conn.id === connectionId);
+
+    if (!connection) {
+      return {
+        success: false,
+        tables: [],
+        error: 'Connection not found',
+      };
+    }
+
+    if (connection.config && connection.config.useOdbc && connection.config.odbcConnectionString) {
+      return await listOdbcTables(connection.config);
+    }
+
+    switch (connection.type) {
+      case DB_TYPES.MSSQL:
+        return await listMssqlTables(connection.config);
+      case DB_TYPES.MYSQL:
+        return await listMysqlTables(connection.config);
+      default:
+        return {
+          success: false,
+          tables: [],
+          error: `Listing tables for database type '${connection.type}' is not supported yet`,
+        };
+    }
+  } catch (error) {
+    console.error('Error listing tables:', error);
+    return {
+      success: false,
+      tables: [],
+      error: error.message || 'Failed to list tables',
+    };
+  }
+}
+
+/**
  * Get connection status (from cache)
  */
 function getConnectionStatus(connectionId) {
@@ -1120,8 +1419,267 @@ async function fetchEaglesoftCredentials(usePrimaryDatabase = true) {
 }
 
 /**
+ * Check if Dentrix is installed on the system.
+ * Detects Dentrix Service + Dentrix.API.dll (mirrors DentrixFacade.cs requirements).
+ */
+async function isDentrixInstalled(dentrixServicePath) {
+  try {
+    return await dentrixCoreCredentials.isDentrixInstalled(dentrixServicePath);
+  } catch (error) {
+    console.error('Error checking Dentrix installation:', error);
+    return {
+      installed: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Check Dentrix installation (Dentrix Service + Dentrix.API.dll).
+ * Does not attempt to get connection string.
+ */
+async function checkDentrixInstallation(dentrixServicePath) {
+  try {
+    return await dentrixCoreCredentials.checkDentrixInstallation(dentrixServicePath);
+  } catch (error) {
+    console.error('Error checking Dentrix installation:', error);
+    return {
+      installed: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Check if Dentrix is installed and, if so, get connection string via Dentrix Service.
+ * Mirrors .NET DentrixFacade.GetDentrixCoreConnectionString flow.
+ *
+ * @param {string} [dentrixServicePath] - Path to Dxc.Sync.Client.DentrixService.exe
+ * @returns {Promise<Object>} { installed, connectionString, config, success, error, ... }
+ */
+async function checkDentrixAndGetConnectionString(dentrixServicePath) {
+  try {
+    return await dentrixCoreCredentials.checkDentrixAndGetConnectionString(dentrixServicePath);
+  } catch (error) {
+    console.error('Error checking Dentrix and getting connection string:', error);
+    return {
+      installed: false,
+      connectionString: null,
+      config: null,
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Test Dentrix API initialization with userName/password.
+ * Mirrors MainForm.TestDentrixAPI
+ *
+ * @param {string} userName - Dentrix user name
+ * @param {string} password - Dentrix password
+ * @param {string} [dentrixServicePath] - Path to Dentrix Service executable
+ */
+async function testDentrixInitialization(userName, password, dentrixServicePath) {
+  try {
+    return await dentrixCoreCredentials.testDentrixInitialization(userName, password, dentrixServicePath);
+  } catch (error) {
+    console.error('Error testing Dentrix initialization:', error);
+    return {
+      success: false,
+      initialized: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Upload documents to Dentrix via Dentrix Service.
+ * Mirrors SyncWriteBackWorker -> DentrixHostClient.RunAsync uploadfiles
+ *
+ * @param {Array<Object>} documents - DocumentInfo: { filePath, id, referenceId, category, description, date, note, userName, password }
+ * @param {string} [dentrixServicePath] - Path to Dentrix Service executable
+ */
+async function uploadDentrixDocuments(documents, dentrixServicePath) {
+  try {
+    return await dentrixCoreCredentials.uploadDentrixDocuments(documents, dentrixServicePath);
+  } catch (error) {
+    console.error('Error uploading Dentrix documents:', error);
+    return {
+      success: false,
+      results: {},
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Fetch connection credentials from locally installed Dentrix via Dentrix Service
+ *
+ * @param {string} [dentrixServicePath] - Path to Dxc.Sync.Client.DentrixService.exe
+ * @returns {Promise<Object>} Result with connection configuration
+ */
+async function fetchDentrixCredentials(dentrixServicePath) {
+  try {
+    console.log('Fetching Dentrix credentials from Dentrix Service...');
+    return await dentrixCoreCredentials.getDentrixCoreConnectionConfig(dentrixServicePath);
+  } catch (error) {
+    console.error('Error fetching Dentrix credentials:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch Dentrix credentials',
+    };
+  }
+}
+
+/**
+ * Fetch Dentrix credentials AND practice info (siteId, sourceId) in one call.
+ * Mirrors MainForm.PopulateDentrixCoreConnectionString flow.
+ *
+ * @param {string} [dentrixServicePath] - Path to Dentrix Service executable
+ * @returns {Promise<Object>} Result with config, connectionString, siteId, sourceId
+ */
+async function fetchDentrixCredentialsWithPracticeInfo(dentrixServicePath) {
+  try {
+    console.log('Fetching Dentrix credentials and practice info...');
+    return await dentrixCoreDataService.getDentrixConnectionAndPracticeInfo(dentrixServicePath);
+  } catch (error) {
+    console.error('Error fetching Dentrix credentials with practice info:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to fetch Dentrix credentials',
+    };
+  }
+}
+
+/**
+ * Get Dentrix practice info from an existing connection string.
+ * Mirrors DentrixFacade.GetDentrixPracticeInfo
+ *
+ * @param {string} connectionString - ODBC connection string
+ * @returns {Promise<Object>} { success, siteId, sourceId }
+ */
+async function getDentrixPracticeInfo(connectionString) {
+  try {
+    return await dentrixCoreDataService.getDentrixPracticeInfo(connectionString);
+  } catch (error) {
+    console.error('Error getting Dentrix practice info:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get Dentrix appointments for a date range.
+ * Mirrors DentrixCorePlugin.GetAppointments
+ *
+ * @param {string} connectionString - ODBC connection string
+ * @param {Date} startDate - Start date
+ * @param {Date} endDate - End date
+ * @returns {Promise<Object>} { success, appointments }
+ */
+async function getDentrixAppointments(connectionString, startDate, endDate) {
+  try {
+    return await dentrixCoreDataService.getDentrixAppointments(connectionString, startDate, endDate);
+  } catch (error) {
+    console.error('Error getting Dentrix appointments:', error);
+    return { success: false, appointments: [], error: error.message };
+  }
+}
+
+/**
+ * Get Dentrix appointment IDs for a date range.
+ * Mirrors DentrixCorePlugin.GetAppointmentIds
+ *
+ * @param {string} connectionString - ODBC connection string
+ * @param {Date} startDate - Start date
+ * @param {Date} endDate - End date
+ * @returns {Promise<Object>} { success, appointmentIds }
+ */
+async function getDentrixAppointmentIds(connectionString, startDate, endDate) {
+  try {
+    return await dentrixCoreDataService.getDentrixAppointmentIds(connectionString, startDate, endDate);
+  } catch (error) {
+    console.error('Error getting Dentrix appointment IDs:', error);
+    return { success: false, appointmentIds: [], error: error.message };
+  }
+}
+
+/**
+ * Add a Dentrix connection by automatically fetching credentials via Dentrix Service.
+ * Mirrors .NET MainForm flow: check install -> get connection -> get practice info -> save.
+ *
+ * @param {string} connectionName - Optional name for the connection
+ * @param {string} [dentrixServicePath] - Path to Dentrix Service executable
+ * @returns {Promise<Object>} Result with the added connection
+ */
+async function addDentrixConnection(connectionName = 'Dentrix Database', dentrixServicePath) {
+  try {
+    console.log('Creating Dentrix connection from Dentrix Service...');
+
+    const installCheck = await checkDentrixInstallation(dentrixServicePath);
+    if (!installCheck.installed) {
+      return {
+        success: false,
+        error: installCheck.error || 'Dentrix is not installed on this system',
+        hint: installCheck.hint || [
+          'Install DentalXChange Eligibility AI with Dentrix integration',
+          'Ensure Dxc.Sync.Client.DentrixService.exe and Dentrix.API.dll are deployed',
+        ],
+      };
+    }
+
+    const result = await dentrixCoreDataService.getDentrixConnectionAndPracticeInfo(dentrixServicePath);
+
+    if (!result.success || !result.connectionString) {
+      return {
+        success: false,
+        error: result.error || 'Failed to get Dentrix connection string',
+        hint: result.hint,
+      };
+    }
+
+    const config = result.config || dentrixCoreCredentials.parseOdbcConnectionString(result.connectionString);
+    const connectionData = {
+      name: connectionName,
+      type: 'mssql',
+      config: {
+        server: config?.server || 'localhost',
+        database: config?.database || '',
+        username: config?.username,
+        password: config?.password,
+        useOdbc: true,
+        odbcConnectionString: result.connectionString,
+        DSN: config?.DSN || config?.server,
+        DBN: config?.DBN || config?.database,
+        siteId: result.siteId,
+        sourceId: result.sourceId,
+      },
+    };
+
+    const addResult = await addConnection(connectionData);
+
+    if (addResult.success) {
+      return {
+        ...addResult,
+        source: 'Dentrix Service (Dentrix.API.dll)',
+        databaseType: 'PracticeDatabase',
+        message: 'Dentrix connection added successfully',
+      };
+    }
+
+    return addResult;
+  } catch (error) {
+    console.error('Error adding Dentrix connection:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to add Dentrix connection',
+    };
+  }
+}
+
+/**
  * Add an Eaglesoft connection by automatically fetching credentials from local installation
- * 
+ *
  * @param {string} connectionName - Optional name for the connection
  * @param {boolean} usePrimaryDatabase - true for primary database, false for secondary
  * @returns {Promise<Object>} Result with the added connection
@@ -1180,6 +1738,7 @@ module.exports = {
   getAllConnections,
   testConnection,
   testAllConnections,
+  listTables,
   getConnectionStatus,
   getAllConnectionStatuses,
   getSupportedDatabaseTypes,
@@ -1193,4 +1752,15 @@ module.exports = {
   isEaglesoftInstalled,
   fetchEaglesoftCredentials,
   addEaglesoftConnection,
+  isDentrixInstalled,
+  checkDentrixInstallation,
+  checkDentrixAndGetConnectionString,
+  testDentrixInitialization,
+  uploadDentrixDocuments,
+  fetchDentrixCredentials,
+  fetchDentrixCredentialsWithPracticeInfo,
+  addDentrixConnection,
+  getDentrixPracticeInfo,
+  getDentrixAppointments,
+  getDentrixAppointmentIds,
 };

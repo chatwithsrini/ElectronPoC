@@ -29,8 +29,8 @@ files:
 
 # Include app icon in packaged resources so the running app can use it (taskbar, etc.)
 extraResources:
-  - from: build/installer.ico
-    to: installer.ico
+  - from: build/icon.ico
+    to: icon.ico
 
 win:
   target:
@@ -49,9 +49,9 @@ nsis:
   allowElevation: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  installerIcon: build/installer.ico
-  uninstallerIcon: build/installer.ico
-  installerHeaderIcon: build/installer.ico
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   include: build/installer.nsh
   artifactName: ${productName}-${version}-Setup.${ext}
   deleteAppDataOnUninstall: true
