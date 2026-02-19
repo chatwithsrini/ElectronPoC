@@ -1130,13 +1130,12 @@ const DENTRIX_LIST_TABLES_QUERY = `
 `.trim();
 
 /**
- * Eaglesoft (SAP SQL Anywhere) specific query - uses SYS.SYSTAB system view.
- * creator=1 filters for user-created tables (excludes system tables).
+ * Eaglesoft (SAP SQL Anywhere) specific query - lists ALL tables from SYS.SYSTAB.
+ * No creator filter; Eaglesoft tables may use various creator IDs.
  */
 const EAGLESOFT_SQL_ANYWHERE_LIST_TABLES_QUERY = `
   SELECT table_name
   FROM SYS.SYSTAB
-  WHERE creator = 1
   ORDER BY table_name
 `.trim();
 
