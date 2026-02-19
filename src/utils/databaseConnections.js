@@ -1130,19 +1130,19 @@ const DENTRIX_LIST_TABLES_QUERY = `
 `.trim();
 
 /**
- * Eaglesoft (SQLite) specific query - SQLite uses sqlite_master, not INFORMATION_SCHEMA.
- * Excludes internal sqlite_* tables.
+ * Eaglesoft (SAP SQL Anywhere) specific query - uses SYS.SYSTAB system view.
+ * creator=1 filters for user-created tables (excludes system tables).
  */
-const EAGLESOFT_SQLITE_LIST_TABLES_QUERY = `
-  SELECT name
-  FROM sqlite_master
-  WHERE type='table' AND name NOT LIKE 'sqlite_%'
-  ORDER BY name
+const EAGLESOFT_SQL_ANYWHERE_LIST_TABLES_QUERY = `
+  SELECT table_name
+  FROM SYS.SYSTAB
+  WHERE creator = 1
+  ORDER BY table_name
 `.trim();
 
 /**
  * List user-defined tables for ODBC connection (Eaglesoft, Dentrix, etc.)
- * Eaglesoft uses SQLite; Dentrix uses FairCom c-tree. Both lack INFORMATION_SCHEMA.TABLES.
+ * Eaglesoft uses SAP SQL Anywhere; Dentrix uses FairCom c-tree.
  */
 async function listOdbcTables(config) {
   try {
@@ -1205,15 +1205,14 @@ async function listOdbcTables(config) {
       return { success: true, tables };
     }
 
-    // Eaglesoft uses SQLite (SQLiteStudio) - INFORMATION_SCHEMA.TABLES does not exist.
-    // Try sqlite_master when standard query fails (SQLite-specific).
-    const isEaglesoftSqliteError =
+    // Eaglesoft uses SAP SQL Anywhere - fallback when INFORMATION_SCHEMA fails (e.g. 42S02).
+    const isSapSqlAnywhereError =
       !result.success &&
       result.error &&
-      /no such table|INFORMATION_SCHEMA|sqlite|unrecognized token|near.*table/i.test(result.error);
+      /SAP|SQL Anywhere|42S02|sqlite_master not found/i.test(result.error);
 
-    if (isEaglesoftSqliteError) {
-      result = await dentrixOdbcBridge.executeOdbcQuery(connectionString, EAGLESOFT_SQLITE_LIST_TABLES_QUERY, []);
+    if (isSapSqlAnywhereError) {
+      result = await dentrixOdbcBridge.executeOdbcQuery(connectionString, EAGLESOFT_SQL_ANYWHERE_LIST_TABLES_QUERY, []);
       if (!result.success) {
         return {
           success: false,
@@ -1223,7 +1222,7 @@ async function listOdbcTables(config) {
       }
       const tables = (result.rows || []).map(r => ({
         schema: '',
-        name: r.name || r.NAME || '',
+        name: r.table_name || r.TABLE_NAME || '',
       })).filter(t => t.name);
       return { success: true, tables };
     }
