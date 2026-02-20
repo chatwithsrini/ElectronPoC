@@ -23,7 +23,7 @@ function OverviewTab({
     <div className="tab-content">
       <div className="overview-welcome">
         <h2 className="overview-welcome__title">
-          Welcome back, <span className="overview-welcome__name">{user.username}</span>!
+          Welcome back, <span className="overview-welcome__name">{user.username.toUpperCase()}</span>!
         </h2>
         <p className="overview-welcome__subtitle">
           Here's an overview of your system status

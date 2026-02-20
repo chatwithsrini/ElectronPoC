@@ -65,20 +65,20 @@ function Dashboard({ user, onLogout }) {
     loadServices();
     loadApplications();
     
-    // Check connection every 30 seconds
+    // Check connection every 60 seconds
     const dbInterval = setInterval(() => {
       loadDatabaseConnectionStatuses();
-    }, 30000);
+    }, 60000);
 
-    // Refresh services every 10 seconds
+    // Refresh services every 30 seconds
     const servicesInterval = setInterval(() => {
       loadServices();
-    }, 10000);
+    }, 30000);
 
-    // Refresh applications every 5 seconds
+    // Refresh applications every 30 seconds
     const appsInterval = setInterval(() => {
       loadApplications();
-    }, 5000);
+    }, 30000);
 
     return () => {
       clearInterval(dbInterval);
@@ -184,7 +184,17 @@ function Dashboard({ user, onLogout }) {
       case 'monitoring':
         return (
           <div className="tab-content">
-            <MonitoringPanel />
+            <MonitoringPanel
+              dbConnections={dbConnections}
+              dbConnectionsLoading={dbConnectionsLoading}
+              services={services}
+              servicesLoading={servicesLoading}
+              applications={applications}
+              applicationsLoading={applicationsLoading}
+              onRefreshDatabases={loadDatabaseConnections}
+              onRefreshServices={loadServices}
+              onRefreshApplications={loadApplications}
+            />
           </div>
         );
 
@@ -211,7 +221,7 @@ function Dashboard({ user, onLogout }) {
         </div>
 
         <h1 className="app__title">
-          <span className="app__title-highlight">{user.username}</span>'s Dashboard
+          <span className="app__title-highlight">{user.username.toUpperCase()}</span>'s Dashboard
         </h1>
       </div>
 
@@ -236,9 +246,9 @@ function Dashboard({ user, onLogout }) {
       </div>
 
       <div className="app__footer">
-        <span>Connected to Windows Services</span>
+        <span>Connected to Windows Services and Databases</span>
         <span className="app__footer-separator">•</span>
-        <span>Electron POC v1.0</span>
+        <span>DentalXChange Connector v1.0</span>
       </div>
     </div>
   );

@@ -471,6 +471,10 @@ Function SystemConfigPageCreate
     Abort
   ${EndIf}
   
+  ; Disable Next button until requirement check results are displayed
+  GetDlgItem $0 $HWNDPARENT 1
+  EnableWindow $0 0
+  
   ; Only run checks once
   ${If} $ConfigChecksRun != "1"
     StrCpy $AllChecksPassed "1"
@@ -644,11 +648,12 @@ Function SystemConfigPageCreate
   
   ${If} $AllChecksPassed == "1"
     SendMessage $1 ${WM_SETTEXT} 0 "STR:✓ All system requirements are met. Click Next to continue."
+    ; Enable Next button only when all requirements are met
+    GetDlgItem $0 $HWNDPARENT 1
+    EnableWindow $0 1
   ${Else}
     SendMessage $1 ${WM_SETTEXT} 0 "STR:✗ System requirements are NOT met. Installation cannot continue."
-    ; Disable Next button
-    GetDlgItem $0 $HWNDPARENT 1
-    EnableWindow $0 0
+    ; Keep Next button disabled - requirements not met
   ${EndIf}
   
   nsDialogs::Show
@@ -786,7 +791,7 @@ FunctionEnd
   !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_NAME}.exe"
   !define MUI_FINISHPAGE_RUN_TEXT "Launch ${APP_NAME}"
   !define MUI_FINISHPAGE_LINK "Visit ${APP_PUBLISHER} Website"
-  !define MUI_FINISHPAGE_LINK_LOCATION "https://www.presidio.com"
+  !define MUI_FINISHPAGE_LINK_LOCATION "https://www.dentalxchange.com/"
   !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 !macroend
 
